@@ -11,13 +11,12 @@ from typing import Optional, List
 load_dotenv()
 
 DB_CONFIG = {
-    "host": os.getenv("DB_HOST"),                     # ex: ep-royal-resonance-abwho9ki-pooler.eu-west-2.aws.neon.tech
+    "host": os.getenv("DB_HOST", "localhost"),           # fallback localhost
     "port": int(os.getenv("DB_PORT", "5432")),
-    "database": os.getenv("DB_NAME"),                 # ex: neondb
-    "user": os.getenv("DB_USER"),                     # ex: neondb_owner
-    "password": os.getenv("DB_PASSWORD"),             # ex: npg_UmQd8tvfnl1E
-    "sslmode": os.getenv("DB_SSLMODE", "require"),    # ← obligatoire pour Neon
-    "channel_binding": os.getenv("DB_CHANNEL_BINDING", "require"),  # ← recommandé pour le pooler
+    "database": os.getenv("DB_NAME", "twitter_conflicts"),
+    "user": os.getenv("DB_USER", "tw_user"),
+    "password": os.getenv("DB_PASSWORD"),
+    "sslmode": os.getenv("DB_SSLMODE", "disable"),      # disable pour VPS local
 }
 
 app = FastAPI()
