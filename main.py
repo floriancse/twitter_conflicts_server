@@ -39,7 +39,7 @@ def get_db_connection():
     return conn
 
 
-@app.get("/disputed_area.geojson")
+@app.get("/api/twitter_conflicts/disputed_area.geojson")
 def get_disputed_area():
     conn = get_db_connection()
     cur = conn.cursor()
@@ -72,7 +72,7 @@ def get_disputed_area():
     return Response(content=json.dumps(geojson_data), media_type="application/json")
 
 
-@app.get("/authors")
+@app.get("/api/twitter_conflicts/authors")
 def get_authors(days: int = 30):
     """
     Retourne la liste des auteurs distincts pour une période donnée
@@ -100,7 +100,7 @@ def get_authors(days: int = 30):
     return {"authors": authors}
 
 
-@app.get("/tweets.geojson")
+@app.get("/api/twitter_conflicts/tweets.geojson")
 def get_tweets(
     days: int = 1, 
     q: Optional[str] = None,
@@ -165,7 +165,7 @@ def get_tweets(
     return Response(content=json.dumps(geojson_data), media_type="application/json")
 
 
-@app.get("/last_tweet_date")
+@app.get("/api/twitter_conflicts/last_tweet_date")
 def get_last_tweet_date():
     conn = get_db_connection()
     cur = conn.cursor()
@@ -185,8 +185,8 @@ def get_last_tweet_date():
 
     return {"last_date": get_date[0], "last_hour": get_date[1]}
 
-@app.get("/random_tweets")
-def get_authors():
+@app.get("/api/twitter_conflicts/random_tweets")
+def get_random_tweets():
     """
     Retourne la liste des auteurs distincts pour une période donnée
     """
