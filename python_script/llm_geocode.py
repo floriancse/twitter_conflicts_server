@@ -2,30 +2,44 @@ import ollama
 import json
 
 def extract_events_and_geoloc(tweet_text):
+    # Liste des typologies pour référence (peut être mise en commentaire ou utilisée pour validation)
+    # MIL-STRIKE, MIL-MOVEMENT, POL-DIPLO, INFRA-DAMAGE, INDUSTRIAL-DEF, CIV-IMPACT, OTHER
+    
     prompt = f"""
     Tu es un analyste OSINT spécialisé en extraction d'événements géopolitiques et militaires à partir de tweets.
 
     Objectif :
-    Extraire uniquement des informations factuelles et relier l'événement principal à un lieu réel identifiable sur une carte.
+    Extraire uniquement des informations factuelles, classifier l'événement et relier l'action à un lieu réel évaluer son importance stratégique.
 
-    Règles STRICTES :
+    Catégories de Typologie (CHOISIR UNIQUEMENT PARMI) :
+    - MIL-STRIKE : Bombardements, frappes de missiles/drones, combats directs.
+    - MIL-MOVEMENT : Transferts de troupes, livraison de matériel, mouvements de blindés.
+    - POL-DIPLO : Réunions diplomatiques, sanctions, déclarations de chefs d'État, traités.
+    - INFRA-DAMAGE : Dégâts sur le réseau électrique, ponts, usines ou infrastructures clés.
+    - INDUSTRIAL-DEF : Production d'armes, partenariats industriels défense, nouvelles usines.
+    - CIV-IMPACT : Déplacements de civils, victimes, aide humanitaire.
+    - OTHER : Si aucune catégorie ne correspond.
+
+    Règles STRICTES de Géolocalisation :
     - N'invente jamais un lieu précis s'il n'est pas explicitement mentionné.
-    - Les lieux explicitement cités (villes, usines, régions) sont utilisables comme main_location même pour des annonces de projets industriels, transferts d'équipements ou préparations de production dans un contexte défense.
-    - Si le lieu est nommé explicitement et lié à l'action principale (production, lancement, partenariat), utilise "location_type": "explicit" et "confidence": "high".
-    - Si plusieurs lieux sont mentionnés, choisis le ou les plus directement liés à l'action principale (ex. sites de production).
+    - Si le lieu est nommé explicitement (ville, base, région) : "location_type": "explicit", "confidence": "high".
+    - Si le texte décrit une opération dans une zone connue sans ville précise : Choisis un point central représentatif, "location_type": "inferred", "confidence": "medium".
+    - Si aucun lieu n'est identifiable : "location_type": "unknown", "latitude": null, "longitude": null.
 
-    Règle pour zones approximatives :
-    - Si le texte décrit une opération ou un événement militaire dans une région connue sans préciser de ville ou base :
-      - Choisis un point représentatif central de cette zone.
-      - La latitude et longitude doivent correspondre à un endroit réel identifiable (ville, base, mer, etc.).
-      - Indique "location_type": "inferred" et ajuste "confidence" en "medium".
-    - Ne crée jamais de villes ou lieux fictifs.
-
+    Critères d'Importance Stratégique (Note de 1 à 5) :
+        1 : Événement local/mineur (escarmouche isolée, déclaration de routine).
+        2 : Événement tactique (mouvement de troupes local, frappe sur cible secondaire).
+        3 : Événement opérationnel (perte d'infrastructure clé, changement de ligne de front).
+        4 : Événement stratégique (changement de politique majeure, livraison d'armes lourdes, escalade régionale).
+        5 : Événement critique mondial (déclaration de guerre, frappe nucléaire, chute d'un gouvernement).
+        
     Format JSON attendu :
     {{
       "events": [
         {{
           "event_summary": "description factuelle et concise",
+          "typologie": "MIL-STRIKE | MIL-MOVEMENT | POL-DIPLO | INFRA-DAMAGE | INDUSTRIAL-DEF | CIV-IMPACT | OTHER",
+          "strategic_importance": 1 | 2 | 3 | 4 | 5,
           "main_location": "nom du lieu ou null",
           "location_type": "explicit | inferred | unknown",
           "latitude": 0.0,
@@ -35,38 +49,31 @@ def extract_events_and_geoloc(tweet_text):
       ]
     }}
 
-    Consignes GPS :
-    - Si location_type = "unknown", latitude et longitude doivent être null.
-    - Si location_type = "inferred", la confiance ne peut pas être "high".
+    IMPORTANT : Si aucune information fiable n'est disponible ou si le tweet n'est pas informatif, retourne : {{"events":[]}}
 
-    IMPORTANT :
-    Si aucune information fiable n'est disponible, retourne exactement :
-    {{"events":[]}}
-
-    Tweet :
+    Tweet à analyser :
     {tweet_text}
     """
 
-
     try:
         response = ollama.chat(
-        model='richardyoung/qwen3-14b-abliterated:q5_k_m',  # ← ou qwen2.5:32b-instruct-q4_K_M
-        messages=[{'role': 'user', 'content': prompt}],
-        format='json',
-        options={
-            'temperature': 0.0,
-            'num_ctx': 4096,
-            'top_p': 0.9,          # ← petit bonus pour éviter les réponses trop "plates"
-            'repeat_penalty': 1.1, # ← réduit les boucles si le tweet est répétitif
-        }
-    )
+            model='richardyoung/qwen3-14b-abliterated:q5_k_m', 
+            messages=[{'role': 'user', 'content': prompt}],
+            format='json',
+            options={
+                'temperature': 0.0,
+                'num_ctx': 4096,
+                'top_p': 0.9,
+                'repeat_penalty': 1.1,
+            }
+        )
         
         raw_content = response['message']['content'].strip()
-        return json.loads(raw_content.replace("```json","").replace("```",""))
+        # Nettoyage sécurisé pour ne garder que le JSON
+        return json.loads(raw_content)
 
     except json.JSONDecodeError as e:
         print("JSON parse error:", e)
-        print("Raw response was:", repr(response['message']['content'][:400]))
         return None
     except Exception as e:
         print("Ollama error:", e)

@@ -55,7 +55,7 @@ for source in sources:
 
         desc = item["description"]
 
-        if desc.startswith("RT") or desc.startswith("x.com"):
+        if desc.startswith(("RT", "x.com","Update")):
             continue
         
         try:
@@ -71,7 +71,7 @@ for source in sources:
                 cur.execute("""
                 INSERT INTO public.TWEETS (tweet_id, date_published, url, author, body) 
                 VALUES (%s, %s, %s, %s, %s)
-                """, (item["id"], item["date"], item["link"], item["author"], item["description"]))
+                """, (item["id"], item["date"], item["link"], item["author"], item["title"]))
                 conn.commit()
             continue
 
@@ -80,22 +80,23 @@ for source in sources:
         lat = event.get("latitude")
         long = event.get("longitude")
         location = event.get("main_location")
-        
+        strategic_importance = event.get("strategic_importance")
+        typology = event.get("typologie")
+
         if lat is not None and long is not None:
             geom_wkt = f"POINT ({long} {lat})"
         else:
             geom_wkt = None
 
         tweet_accuracy = accuracy_table[event["confidence"]]    
-
         cur.execute("""
-        INSERT INTO public.TWEETS (tweet_id, date_published, url, author, body, accuracy, GEOM) 
-        VALUES (%s, %s, %s, %s, %s, %s, 
+        INSERT INTO public.TWEETS (tweet_id, date_published, url, author, body, accuracy, importance, typology, GEOM) 
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 
                 CASE WHEN %s IS NOT NULL 
                 THEN ST_GeomFromText(%s, 4326) 
                 ELSE NULL END)
             """, 
-        (item["id"], item["date"], item["link"], item["author"], item["description"], tweet_accuracy,  geom_wkt, geom_wkt))
+        (item["id"], item["date"], item["link"], item["author"], item["title"], tweet_accuracy, strategic_importance, typology,  geom_wkt, geom_wkt))
 
         conn.commit()
 

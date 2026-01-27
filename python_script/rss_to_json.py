@@ -52,7 +52,7 @@ def parse_to_json(user_url, user_name):
         creator = item.find('{http://purl.org/dc/elements/1.1/}creator').text
         if creator == user_name:
             tweet = {
-                'title': item.find('title').text,
+                'title': clean_html(item.find('title').text.replace("localhost:8080", "x.com").replace("localhost","x.com")),
                 'date': item.find('pubDate').text,
                 'link': item.find('link').text.replace("localhost","x.com"),
                 'id': item.find('guid').text,

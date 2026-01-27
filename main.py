@@ -23,7 +23,12 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[""],
+    allow_origins=[
+        "http://127.0.0.1:5500",     # Ton frontend local
+        "http://localhost:5500",     # Variante courante
+        "*",                         # Wildcard pour tout autoriser (temporaire en dev)
+    ],
+    allow_credentials=False,         # Mets False si tu n'utilises pas de cookies/auth (la plupart des cas GET comme ici)
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -143,7 +148,9 @@ def get_tweets(
                         'author', author,
                         'date_published', date_published,
                         'body', body,
-                        'accuracy', accuracy
+                        'accuracy', accuracy,
+                        'importance', importance,
+                        'typology', typology
                     )
                 )
             )
