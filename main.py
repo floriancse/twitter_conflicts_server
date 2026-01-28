@@ -255,17 +255,13 @@ def get_important_tweets():
             BODY,
             AUTHOR,
             DATE_PUBLISHED,
-            URL
+            URL,
+            ST_X (GEOM) AS LAT,
+            ST_Y (GEOM) AS LONG
         FROM
             TWEETS
         WHERE
             IMPORTANCE::INT >= 4
-            AND DATE_PUBLISHED::DATE = (
-                SELECT
-                    MAX(DATE_PUBLISHED)::DATE
-                FROM
-                    TWEETS
-            )
         """,
     )
 
