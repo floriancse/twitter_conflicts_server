@@ -282,7 +282,9 @@ def get_important_tweets():
             "body": tweet[1],
             "author": tweet[2],
             "date_published": tweet[3].isoformat(),
-            "url": tweet[4]
+            "url": tweet[4],
+            "lat":tweet[5],
+            "long":tweet[6],
         })
 
     return {"tweets": formatted_tweets}
