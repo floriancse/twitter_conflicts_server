@@ -53,7 +53,7 @@ for source in sources:
             if not item["description"].startswith("GeoConfirmed "):
                 continue
 
-        desc = item["description"]
+        desc = item["title"]
 
         if desc.startswith(("RT", "x.com","Update")):
             continue

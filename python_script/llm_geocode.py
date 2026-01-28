@@ -12,13 +12,8 @@ def extract_events_and_geoloc(tweet_text):
     Extraire uniquement des informations factuelles, classifier l'événement et relier l'action à un lieu réel évaluer son importance stratégique.
 
     Catégories de Typologie (CHOISIR UNIQUEMENT PARMI) :
-    - MIL-STRIKE : Bombardements, frappes de missiles/drones, combats directs.
-    - MIL-MOVEMENT : Transferts de troupes, livraison de matériel, mouvements de blindés.
-    - POL-DIPLO : Réunions diplomatiques, sanctions, déclarations de chefs d'État, traités.
-    - INFRA-DAMAGE : Dégâts sur le réseau électrique, ponts, usines ou infrastructures clés.
-    - INDUSTRIAL-DEF : Production d'armes, partenariats industriels défense, nouvelles usines.
-    - CIV-IMPACT : Déplacements de civils, victimes, aide humanitaire.
-    - OTHER : Si aucune catégorie ne correspond.
+    - MIL : Seulement si le texte mentionne explicitement un bombardement, une frappe de missile/drone, ou un combat direct avéré (avec preuve ou source claire).
+    - OTHER : Tout autre événement.
 
     Règles STRICTES de Géolocalisation :
     - N'invente jamais un lieu précis s'il n'est pas explicitement mentionné.
@@ -38,7 +33,7 @@ def extract_events_and_geoloc(tweet_text):
       "events": [
         {{
           "event_summary": "description factuelle et concise",
-          "typologie": "MIL-STRIKE | MIL-MOVEMENT | POL-DIPLO | INFRA-DAMAGE | INDUSTRIAL-DEF | CIV-IMPACT | OTHER",
+          "typologie": "MIL | OTHER",
           "strategic_importance": 1 | 2 | 3 | 4 | 5,
           "main_location": "nom du lieu ou null",
           "location_type": "explicit | inferred | unknown",

@@ -195,7 +195,7 @@ def get_last_tweet_date():
 @app.get("/api/twitter_conflicts/random_tweets")
 def get_random_tweets():
     """
-    Retourne la liste des auteurs distincts pour une période donnée
+    Retourne une liste de tweets aléatoires sans géométrie
     """
     conn = get_db_connection()
     cur = conn.cursor()
@@ -221,6 +221,51 @@ def get_random_tweets():
             RANDOM()
         LIMIT
             5 
+        """,
+    )
+
+    tweets = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    formatted_tweets = []
+    for tweet in tweets:
+        formatted_tweets.append({
+            "id": tweet[0],
+            "body": tweet[1],
+            "author": tweet[2],
+            "date_published": tweet[3].isoformat(),
+            "url": tweet[4]
+        })
+
+    return {"tweets": formatted_tweets}
+
+
+@app.get("/api/twitter_conflicts/important_tweets")
+def get_important_tweets():
+    """
+    Retourne la liste des tweets importants
+    """
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT
+            ID,
+            BODY,
+            AUTHOR,
+            DATE_PUBLISHED,
+            URL
+        FROM
+            TWEETS
+        WHERE
+            IMPORTANCE::INT >= 4
+            AND DATE_PUBLISHED::DATE = (
+                SELECT
+                    MAX(DATE_PUBLISHED)::DATE
+                FROM
+                    TWEETS
+            )
         """,
     )
 
