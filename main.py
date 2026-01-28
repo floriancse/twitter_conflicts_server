@@ -11,12 +11,12 @@ from typing import Optional, List
 load_dotenv()
 
 DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "localhost"),           # fallback localhost
+    "host": os.getenv("DB_HOST", "localhost"),          
     "port": int(os.getenv("DB_PORT", "5432")),
     "database": os.getenv("DB_NAME", "twitter_conflicts"),
     "user": os.getenv("DB_USER", "tw_user"),
     "password": os.getenv("DB_PASSWORD"),
-    "sslmode": os.getenv("DB_SSLMODE", "disable"),      # disable pour VPS local
+    "sslmode": os.getenv("DB_SSLMODE", "disable"),      
 }
 
 app = FastAPI()
@@ -24,11 +24,11 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://127.0.0.1:5500",     # Ton frontend local
-        "http://localhost:5500",     # Variante courante
-        "*",                         # Wildcard pour tout autoriser (temporaire en dev)
+        "http://127.0.0.1:5500",     
+        "http://localhost:5500",     
+        "*",                        
     ],
-    allow_credentials=False,         # Mets False si tu n'utilises pas de cookies/auth (la plupart des cas GET comme ici)
+    allow_credentials=False,        
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -49,7 +49,7 @@ def get_disputed_area():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    # On récupère les géométries en GeoJSON directement depuis PostGIS
+
     cur.execute(
         """
         SELECT json_build_object(
@@ -109,23 +109,20 @@ def get_authors(days: int = 30):
 def get_tweets(
     days: int = 1, 
     q: Optional[str] = None,
-    authors: Optional[str] = None  # Liste d'auteurs séparés par virgule
+    authors: Optional[str] = None  
 ):
     conn = get_db_connection()
     cur = conn.cursor()
 
     date_limit = datetime.now() - timedelta(days=days)
 
-    # Construction de la requête SQL avec filtres dynamiques
     conditions = ["date_published >= %s"]
     params = [date_limit]
 
-    # Filtre par mot-clé
     if q:
         conditions.append("(body ILIKE %s OR author ILIKE %s)")
         params.extend([f"%{q}%", f"%{q}%"])
 
-    # Filtre par auteurs
     if authors:
         author_list = [a.strip() for a in authors.split(',') if a.strip()]
         if author_list:

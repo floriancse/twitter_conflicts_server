@@ -1,10 +1,7 @@
 import ollama
 import json
 
-def extract_events_and_geoloc(tweet_text):
-    # Liste des typologies pour référence (peut être mise en commentaire ou utilisée pour validation)
-    # MIL-STRIKE, MIL-MOVEMENT, POL-DIPLO, INFRA-DAMAGE, INDUSTRIAL-DEF, CIV-IMPACT, OTHER
-    
+def extract_events_and_geoloc(tweet_text):    
     prompt = f"""
     Tu es un analyste OSINT spécialisé en extraction d'événements géopolitiques et militaires à partir de tweets.
 
@@ -17,8 +14,8 @@ def extract_events_and_geoloc(tweet_text):
 
     Règles STRICTES de Géolocalisation :
     - N'invente jamais un lieu précis s'il n'est pas explicitement mentionné.
-    - Si le lieu est nommé explicitement (ville, base, région) : "location_type": "explicit", "confidence": "high".
-    - Si le texte décrit une opération dans une zone connue sans ville précise : Choisis un point central représentatif, "location_type": "inferred", "confidence": "medium".
+    - Si le lieu est nommé explicitement (ville, base) : "location_type": "explicit", "confidence": "high".
+    - Si le texte décrit une opération dans une zone connue sans ville précise (ex : Middle East, Northern Atlantic): Choisis un point central représentatif, "location_type": "inferred", "confidence": "medium".
     - Si aucun lieu n'est identifiable : "location_type": "unknown", "latitude": null, "longitude": null.
 
     Critères d'Importance Stratégique (Note de 1 à 5) :
@@ -64,7 +61,6 @@ def extract_events_and_geoloc(tweet_text):
         )
         
         raw_content = response['message']['content'].strip()
-        # Nettoyage sécurisé pour ne garder que le JSON
         return json.loads(raw_content)
 
     except json.JSONDecodeError as e:
