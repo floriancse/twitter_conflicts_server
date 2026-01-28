@@ -260,6 +260,12 @@ def get_important_tweets():
             TWEETS
         WHERE
             IMPORTANCE::INT >= 4
+            AND DATE_PUBLISHED::DATE = (
+                SELECT
+                    MAX(DATE_PUBLISHED)::DATE
+                FROM
+                    TWEETS
+            )
         """,
     )
 
