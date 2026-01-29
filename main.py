@@ -106,18 +106,20 @@ def get_authors(days: int = 30):
 
 
 @app.get("/api/twitter_conflicts/tweets.geojson")
-def get_tweets(
-    days: int = 1, 
-    q: Optional[str] = None,
-    authors: Optional[str] = None  
-):
+def get_tweets(days: int = 1, q: Optional[str] = None, authors: Optional[str] = None):
     conn = get_db_connection()
     cur = conn.cursor()
 
-    date_limit = datetime.now() - timedelta(days=days)
-
-    conditions = ["date_published >= %s"]
-    params = [date_limit]
+    # Modification ici : au lieu de timedelta, on prend la date du jour
+    if days == 1:
+        # Pour 1 jour, on prend uniquement la date du jour actuel
+        conditions = ["date_published::DATE = CURRENT_DATE"]
+        params = []
+    else:
+        # Pour 7 ou 30 jours, on garde la logique actuelle
+        date_limit = datetime.now() - timedelta(days=days)
+        conditions = ["date_published >= %s"]
+        params = [date_limit]
 
     if q:
         conditions.append("(body ILIKE %s OR author ILIKE %s)")

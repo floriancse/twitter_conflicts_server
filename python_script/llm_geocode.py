@@ -17,7 +17,8 @@ def extract_events_and_geoloc(tweet_text):
     - Si le lieu est nommé explicitement (ville, base) : "location_type": "explicit", "confidence": "high".
     - Si le texte décrit une opération dans une zone connue sans ville précise (ex : Middle East, Northern Atlantic): Choisis un point central représentatif, "location_type": "inferred", "confidence": "medium".
     - Si aucun lieu n'est identifiable : "location_type": "unknown", "latitude": null, "longitude": null.
-
+    - Pour les localisations maritimes (océan, mer, golfe, canal, ou toute étendue d'eau mentionnée comme "over the Black Sea", "in the Atlantic Ocean", etc.) : Choisis toujours un point central dans les eaux, pas sur terre. Utilise des coordonnées approximatives au milieu de la zone aquatique concernée (ex : pour la Mer Noire, environ 43.0 latitude, 34.0 longitude). "location_type": "inferred" si non explicite, "confidence": "medium".
+    
     Critères d'Importance Stratégique (Note de 1 à 5) :
         1 : Événement local/mineur (escarmouche isolée, déclaration de routine).
         2 : Événement tactique (mouvement de troupes local, frappe sur cible secondaire).

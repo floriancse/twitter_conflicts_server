@@ -34,7 +34,7 @@ conn = get_db_connection()
 cur = conn.cursor()
 cur.execute("SELECT tweet_id from tweets")
 tweet_in_db = [i[0] for i in cur.fetchall()]
-sources = ["@GeoConfirmed", "@sentdefender","@OSINTWarfare","@Osinttechnical","@Conflict_Radar"]
+sources = ["@GeoConfirmed", "@sentdefender","@OSINTWarfare","@Osinttechnical","@Conflict_Radar","@ACLEDINFO"]
 
 accuracy_table = {
     "high":"Haute",
