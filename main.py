@@ -49,7 +49,6 @@ def get_disputed_area():
     conn = get_db_connection()
     cur = conn.cursor()
 
-
     cur.execute(
         """
         SELECT json_build_object(
@@ -78,23 +77,22 @@ def get_disputed_area():
 
 
 @app.get("/api/twitter_conflicts/authors")
-def get_authors(days: int = 30):
+def get_authors(hours: int = 720):
     """
-    Retourne la liste des auteurs distincts pour une période donnée
+    Retourne la liste des auteurs distincts pour une période donnée en heures
+    Par défaut 720 heures = 30 jours
     """
     conn = get_db_connection()
     cur = conn.cursor()
-
-    date_limit = datetime.now() - timedelta(days=days)
 
     cur.execute(
         """
         SELECT DISTINCT author
         FROM public.tweets
-        WHERE date_published >= %s
+        WHERE date_published >= NOW() - INTERVAL '%s hours'
         ORDER BY author;
         """,
-        (date_limit,)
+        (hours,)
     )
 
     authors = [row[0] for row in cur.fetchall()]
@@ -106,20 +104,17 @@ def get_authors(days: int = 30):
 
 
 @app.get("/api/twitter_conflicts/tweets.geojson")
-def get_tweets(days: int = 1, q: Optional[str] = None, authors: Optional[str] = None):
+def get_tweets(hours: int = 24, q: Optional[str] = None, authors: Optional[str] = None):
+    """
+    Retourne les tweets en GeoJSON pour une période donnée en heures
+    Par défaut 24 heures = 1 jour
+    """
     conn = get_db_connection()
     cur = conn.cursor()
 
-    # Modification ici : au lieu de timedelta, on prend la date du jour
-    if days == 1:
-        # Pour 1 jour, on prend uniquement la date du jour actuel
-        conditions = ["date_published::DATE = CURRENT_DATE"]
-        params = []
-    else:
-        # Pour 7 ou 30 jours, on garde la logique actuelle
-        date_limit = datetime.now() - timedelta(days=days)
-        conditions = ["date_published >= %s"]
-        params = [date_limit]
+    # Utilisation de NOW() - INTERVAL pour les dernières X heures
+    conditions = ["date_published >= NOW() - INTERVAL '%s hours'"]
+    params = [hours]
 
     if q:
         conditions.append("(body ILIKE %s OR author ILIKE %s)")
@@ -191,10 +186,12 @@ def get_last_tweet_date():
 
     return {"last_date": get_date[0], "last_hour": get_date[1]}
 
+
 @app.get("/api/twitter_conflicts/random_tweets")
-def get_random_tweets():
+def get_random_tweets(hours: int = 24):
     """
     Retourne une liste de tweets aléatoires sans géométrie
+    Par défaut sur les dernières 24 heures
     """
     conn = get_db_connection()
     cur = conn.cursor()
@@ -209,18 +206,15 @@ def get_random_tweets():
         FROM
             public.TWEETS
         WHERE
-            DATE_PUBLISHED::DATE = (
-                SELECT
-                    MAX(DATE_PUBLISHED)::DATE
-                FROM
-                    TWEETS
-            )
-            AND LENGTH(BODY) BETWEEN 50 AND 200 AND GEOM IS NULL
+            DATE_PUBLISHED >= NOW() - INTERVAL '%s hours'
+            AND LENGTH(BODY) BETWEEN 50 AND 200 
+            AND GEOM IS NULL
         ORDER BY
             RANDOM()
         LIMIT
             5 
         """,
+        (hours,)
     )
 
     tweets = cur.fetchall()
@@ -241,9 +235,10 @@ def get_random_tweets():
 
 
 @app.get("/api/twitter_conflicts/important_tweets")
-def get_important_tweets():
+def get_important_tweets(hours: int = 24):
     """
-    Retourne la liste des tweets importants
+    Retourne la liste des tweets importants sur les dernières heures
+    Par défaut sur les dernières 24 heures
     """
     conn = get_db_connection()
     cur = conn.cursor()
@@ -255,19 +250,17 @@ def get_important_tweets():
             AUTHOR,
             DATE_PUBLISHED,
             URL,
-            ST_X (GEOM) AS LAT,
-            ST_Y (GEOM) AS LONG
+            ST_X (GEOM) AS LONG,
+            ST_Y (GEOM) AS LAT
         FROM
             TWEETS
         WHERE
             IMPORTANCE::INT >= 4
-            AND DATE_PUBLISHED::DATE = (
-                SELECT
-                    MAX(DATE_PUBLISHED)::DATE
-                FROM
-                    TWEETS
-            )
+            AND DATE_PUBLISHED >= NOW() - INTERVAL '%s hours'
+        ORDER BY
+            DATE_PUBLISHED DESC
         """,
+        (hours,)
     )
 
     tweets = cur.fetchall()
@@ -282,8 +275,8 @@ def get_important_tweets():
             "author": tweet[2],
             "date_published": tweet[3].isoformat(),
             "url": tweet[4],
-            "long":tweet[5],
-            "lat":tweet[6],
+            "long": tweet[5],
+            "lat": tweet[6],
         })
 
     return {"tweets": formatted_tweets}

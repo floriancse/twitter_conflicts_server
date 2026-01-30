@@ -6,3 +6,51 @@
 2026-01-28 23:40:24 Scraping terminé
 2026-01-29 11:01:34 Scraping terminé
 2026-01-29 15:27:04 Scraping terminé
+2026-01-29 18:07:57 Scraping terminé
+2026-01-29 18:12:29 Scraping terminé
+Traceback (most recent call last):
+  File "/home/eos/PORTFOLIO/webapp/OSINTObsever/server/python_script/feed.py", line 33, in <module>
+    conn = get_db_connection()
+  File "/home/eos/PORTFOLIO/webapp/OSINTObsever/server/python_script/feed.py", line 24, in get_db_connection
+    conn = psycopg2.connect(
+        host=DB_CONFIG["host"],
+    ...<3 lines>...
+        password=DB_CONFIG["password"],
+    )
+  File "/home/eos/miniconda3/envs/GEO_APP/lib/python3.13/site-packages/psycopg2/__init__.py", line 122, in connect
+    conn = _connect(dsn, connection_factory=connection_factory, **kwasync)
+psycopg2.OperationalError: connection to server at "135.125.101.174", port 5432 failed: server closed the connection unexpectedly
+	This probably means the server terminated abnormally
+	before or while processing the request.
+
+Traceback (most recent call last):
+  File "/home/eos/PORTFOLIO/webapp/OSINTObsever/server/python_script/feed.py", line 33, in <module>
+    conn = get_db_connection()
+  File "/home/eos/PORTFOLIO/webapp/OSINTObsever/server/python_script/feed.py", line 24, in get_db_connection
+    conn = psycopg2.connect(
+        host=DB_CONFIG["host"],
+    ...<3 lines>...
+        password=DB_CONFIG["password"],
+    )
+  File "/home/eos/miniconda3/envs/GEO_APP/lib/python3.13/site-packages/psycopg2/__init__.py", line 122, in connect
+    conn = _connect(dsn, connection_factory=connection_factory, **kwasync)
+psycopg2.OperationalError: connection to server at "135.125.101.174", port 5432 failed: server closed the connection unexpectedly
+	This probably means the server terminated abnormally
+	before or while processing the request.
+
+Traceback (most recent call last):
+  File "/home/eos/PORTFOLIO/webapp/OSINTObsever/server/python_script/feed.py", line 33, in <module>
+    conn = get_db_connection()
+  File "/home/eos/PORTFOLIO/webapp/OSINTObsever/server/python_script/feed.py", line 24, in get_db_connection
+    conn = psycopg2.connect(
+        host=DB_CONFIG["host"],
+    ...<3 lines>...
+        password=DB_CONFIG["password"],
+    )
+  File "/home/eos/miniconda3/envs/GEO_APP/lib/python3.13/site-packages/psycopg2/__init__.py", line 122, in connect
+    conn = _connect(dsn, connection_factory=connection_factory, **kwasync)
+psycopg2.OperationalError: connection to server at "135.125.101.174", port 5432 failed: server closed the connection unexpectedly
+	This probably means the server terminated abnormally
+	before or while processing the request.
+
+2026-01-30 00:07:24 Scraping terminé
