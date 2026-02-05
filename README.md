@@ -30,8 +30,8 @@ Ce projet collecte des tweets de sources OSINT, extrait les informations géopol
          │ JSON
          ▼
 ┌─────────────────┐
-│  LLM Analyzer   │ (llm_geocode.py)
-│  Ollama/Qwen3   │
+│  LLM Qwen3      │ (llm_geocode.py)
+│                 │
 └────────┬────────┘
          │ Structured Data
          ▼
