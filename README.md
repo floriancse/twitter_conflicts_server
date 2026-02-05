@@ -25,7 +25,7 @@ Ce projet collecte des tweets de sources OSINT, extrait les informations géopol
          ▼
 ┌─────────────────┐
 │  RSS Parser     │ (rss_to_json.py)
-│  Clean HTML     │
+│                 │
 └────────┬────────┘
          │ JSON
          ▼
