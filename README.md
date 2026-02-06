@@ -1,4 +1,4 @@
-# OSINT Twitter Conflicts Monitor
+# OSINT Observer
 
 Système automatisé de collecte, géolocalisation et visualisation d'événements géopolitiques à partir de sources OSINT Twitter.
 
