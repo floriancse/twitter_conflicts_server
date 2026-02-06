@@ -4,7 +4,7 @@ Système automatisé de collecte, géolocalisation et visualisation d'événemen
 
 ## Vue d'ensemble
 
-Ce projet collecte des tweets de sources OSINT, extrait les informations géopolitiques et militaires via IA, géolocalise les événements et expose les données via une API REST.
+Ce projet collecte des tweets de sources OSINT (Open Source Intelligence, ou Renseignement d’Origine Sources Ouvertes), extrait les informations géopolitiques et militaires via IA, géolocalise les événements et expose les données via une API REST.
 
 ## Fonctionnalités
 
