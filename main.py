@@ -14,7 +14,7 @@ Endpoints principaux :
 
 Configuration :
 - Base de données : PostgreSQL avec extension PostGIS
-- CORS : Activé pour développement local (port 5500)
+- CORS : Activé pour développement local 
 - Variables d'environnement : Chargées depuis fichier .env
 """
 
