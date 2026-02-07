@@ -21,6 +21,7 @@ import json
 import re
 import sys
 import urllib.request
+from urllib.parse import unquote
 
 def extract_images(text):
     """
@@ -46,14 +47,13 @@ def extract_images(text):
     images = re.findall(img_pattern, text)
     
     # Remplacement de localhost par x.com dans les URLs
-    images = [
-        url.replace("%2F", "/")
-        .replace("localhost:8080/pic/media", "pbs.twimg.com/media")
-        .replace("localhost/pic/media", "pbs.twimg.com/media")
-        .removesuffix(".png").removesuffix(".jpg").removesuffix(".jpeg").removesuffix(".webp")
-        + "?format=jpg&name=medium"
-        for url in images
-    ]    
+    for i in range(len(images)):
+        if "card_img" not in images[i] and "amplify_video_thumb" not in images[i]:
+            images[i] = unquote(images[i])
+            images[i] = images[i].split("media/")[1][:-4]
+            images[i] = "https://pbs.twimg.com/media/" + images[i] + "?format=jpg&name=medium"
+        else:
+            images[i] = None
     return images
 
 def clean_html(text):

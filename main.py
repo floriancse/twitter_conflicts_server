@@ -187,29 +187,37 @@ def get_tweets(hours: int = 24, q: Optional[str] = None, authors: Optional[str] 
 
     where_clause = " AND ".join(conditions)
 
-    # Requête SQL avec construction GeoJSON intégrée
+    # Requête SQL avec construction GeoJSON intégrée incluant les images
     query = f"""
         SELECT json_build_object(
             'type', 'FeatureCollection',
             'features', json_agg(
                 json_build_object(
                     'type', 'Feature',
-                    'geometry', ST_AsGeoJSON(geom)::json,
+                    'geometry', ST_AsGeoJSON(t.geom)::json,
                     'properties', json_build_object(
-                        'id', id,
-                        'url', url,
-                        'author', author,
-                        'date_published', date_published,
-                        'body', body,
-                        'accuracy', accuracy,
-                        'importance', importance,
-                        'typology', typology
+                        'id', t.id,
+                        'url', t.url,
+                        'author', t.author,
+                        'date_published', t.date_published,
+                        'body', t.body,
+                        'accuracy', t.accuracy,
+                        'importance', t.importance,
+                        'typology', t.typology,
+                        'images', COALESCE(
+                            (
+                                SELECT json_agg(ti.image_url ORDER BY ti.image_url)
+                                FROM public.tweet_image ti
+                                WHERE ti.tweet_id = t.tweet_id
+                            ),
+                            '[]'::json
+                        )
                     )
                 )
             )
         )
-        FROM public.tweets
-        WHERE {where_clause} and GEOM IS NOT NULL;
+        FROM public.tweets t
+        WHERE {where_clause} and t.GEOM IS NOT NULL;
     """
 
     cur.execute(query, params)
@@ -325,7 +333,7 @@ def get_important_tweets(hours: int = 24):
         hours (int): Période temporelle en heures (par défaut 24h)
         
     Returns:
-        dict: {"tweets": [{id, body, author, date_published, url, long, lat}, ...]}
+        dict: {"tweets": [{id, body, author, date_published, url, long, lat, images}, ...]}
         
     Critère de sélection :
     - Importance ≥ 4 (événements stratégiques/critiques selon l'analyse LLM)
@@ -339,20 +347,20 @@ def get_important_tweets(hours: int = 24):
     cur.execute(
         """
         SELECT
-            ID,
-            BODY,
-            AUTHOR,
-            DATE_PUBLISHED,
-            URL,
-            ST_X (GEOM) AS LONG,
-            ST_Y (GEOM) AS LAT
+            t.ID,
+            t.BODY,
+            t.AUTHOR,
+            t.DATE_PUBLISHED,
+            t.URL,
+            ST_X(t.GEOM) AS LONG,
+            ST_Y(t.GEOM) AS LAT,
         FROM
-            TWEETS
+            TWEETS t
         WHERE
-            IMPORTANCE::INT >= 4
-            AND DATE_PUBLISHED >= NOW() - INTERVAL '%s hours'
+            t.IMPORTANCE::INT >= 4
+            AND t.DATE_PUBLISHED >= NOW() - INTERVAL '%s hours'
         ORDER BY
-            DATE_PUBLISHED DESC
+            t.DATE_PUBLISHED DESC
         """,
         (hours,)
     )
