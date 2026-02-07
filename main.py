@@ -353,7 +353,7 @@ def get_important_tweets(hours: int = 24):
             t.DATE_PUBLISHED,
             t.URL,
             ST_X(t.GEOM) AS LONG,
-            ST_Y(t.GEOM) AS LAT,
+            ST_Y(t.GEOM) AS LAT
         FROM
             TWEETS t
         WHERE
