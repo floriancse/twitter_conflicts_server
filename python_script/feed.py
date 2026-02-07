@@ -135,9 +135,15 @@ for source in sources:
                 ELSE NULL END)
             """, 
         (item["id"], item["date"], item["link"], item["author"], item["title"], tweet_accuracy, strategic_importance, typology,  geom_wkt, geom_wkt))
-
         conn.commit()
 
+        for img in item["images"]:
+            cur.execute("""
+            INSERT INTO public.tweet_image (tweet_id, image_url) 
+            VALUES (%s, %s)
+            """, (item["id"], img))
+            conn.commit()
+            
 # Fermeture propre des connexions
 cur.close()
 conn.close()
