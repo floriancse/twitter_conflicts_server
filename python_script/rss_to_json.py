@@ -48,12 +48,16 @@ def extract_images(text):
     
     # Remplacement de localhost par x.com dans les URLs
     for i in range(len(images)):
-        if "card_img" not in images[i] and "amplify_video_thumb" not in images[i]:
+        if "localhost/pic/media" in images[i]:
             images[i] = unquote(images[i])
             images[i] = images[i].split("media/")[1][:-4]
             images[i] = "https://pbs.twimg.com/media/" + images[i] + "?format=jpg&name=medium"
+        elif "localhost/pic/amplify_video_thumb" in images[i]:
+            images[i] = unquote(images[i])
+            images[i] = "https://pbs.twimg.com/" + images[i].split("http://localhost/pic")[1]
         else:
             images[i] = None
+            
     return images
 
 def clean_html(text):
