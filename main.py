@@ -114,6 +114,52 @@ def get_disputed_area():
     return Response(content=json.dumps(geojson_data), media_type="application/json")
 
 
+@app.get("/api/twitter_conflicts/world_countries.geojson")
+def get_disputed_area():
+    """
+    Retourne les pays en format GeoJSON.
+    
+    Utilise les fonctions PostGIS pour convertir les géométries PostgreSQL
+    en GeoJSON standard compatible avec les bibliothèques cartographiques (Leaflet, Mapbox).
+    
+    Returns:
+        Response: GeoJSON FeatureCollection contenant les polygones des zones disputées
+    """
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    # Construction du GeoJSON directement en SQL avec json_build_object et ST_AsGeoJSON
+    cur.execute(
+        """
+        SELECT
+            JSON_BUILD_OBJECT(
+                'type',
+                'FeatureCollection',
+                'features',
+                JSON_AGG(
+                    JSON_BUILD_OBJECT(
+                        'type',
+                        'Feature',
+                        'geometry',
+                        ST_ASGEOJSON (GEOM)::JSON,
+                        'properties',
+                        JSON_BUILD_OBJECT('id', OGC_FID, 'name', SOVEREIGNT)
+                    )
+                )
+            )
+        FROM
+            PUBLIC.WORLD_COUNTRIES;
+    """
+    )
+
+    geojson_data = cur.fetchone()[0]
+
+    cur.close()
+    conn.close()
+
+    return Response(content=json.dumps(geojson_data), media_type="application/json")
+
+
 @app.get("/api/twitter_conflicts/authors")
 def get_authors(hours: int = 720):
     """
@@ -344,6 +390,8 @@ def get_important_tweets(hours: int = 24):
     """
     conn = get_db_connection()
     cur = conn.cursor()
+    
+    # Requête modifiée pour inclure les images avec une sous-requête
     cur.execute(
         """
         SELECT
@@ -353,7 +401,15 @@ def get_important_tweets(hours: int = 24):
             t.DATE_PUBLISHED,
             t.URL,
             ST_X(t.GEOM) AS LONG,
-            ST_Y(t.GEOM) AS LAT
+            ST_Y(t.GEOM) AS LAT,
+            COALESCE(
+                (
+                    SELECT json_agg(ti.image_url ORDER BY ti.image_url)
+                    FROM public.tweet_image ti
+                    WHERE ti.tweet_id = t.tweet_id
+                ),
+                '[]'::json
+            ) AS images
         FROM
             TWEETS t
         WHERE
@@ -380,6 +436,7 @@ def get_important_tweets(hours: int = 24):
             "url": tweet[4],
             "long": tweet[5],  # Longitude extraite avec ST_X
             "lat": tweet[6],   # Latitude extraite avec ST_Y
+            "images": tweet[7] if tweet[7] else []  # Images sous forme de tableau JSON
         })
 
     return {"tweets": formatted_tweets}
