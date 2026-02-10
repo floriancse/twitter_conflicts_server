@@ -433,7 +433,7 @@ def get_country_info(
     return {
         "country": country_name,
         "period_hours": hours,
-        "total_events": result[0] if result else 0,
-        "unique_authors": result[3] if result else 0,
-        "last_event_date": result[4].isoformat() if result and result[4] else None
+        "total_events":   result[0] if result else 0,
+        "unique_authors": result[1] if result else 0,
+        "last_event_date": result[2].isoformat() if result and result[2] else None
     }
