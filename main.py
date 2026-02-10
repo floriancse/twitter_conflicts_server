@@ -333,22 +333,6 @@ def get_country_stats(
         
     Returns:
         dict: Données agrégées par intervalle de temps avec comptages
-        
-    Format de réponse:
-    {
-        "country": "Ukraine",
-        "period_hours": 24,
-        "interval_hours": 2,
-        "data": [
-            {
-                "timestamp": "2026-02-10T00:00:00",
-                "total": 15,
-                "mil": 10,
-                "other": 5
-            },
-            ...
-        ]
-    }
     """
     conn = get_db_connection()
     cur = conn.cursor()
@@ -381,9 +365,7 @@ def get_country_stats(
         )
         SELECT 
             time_bucket,
-            COUNT(*) as total,
-            COUNT(*) FILTER (WHERE typology = 'MIL') as mil,
-            COUNT(*) FILTER (WHERE typology = 'OTHER') as other
+            COUNT(*) as total
         FROM time_buckets
         GROUP BY time_bucket
         ORDER BY time_bucket ASC;
@@ -398,8 +380,6 @@ def get_country_stats(
         data.append({
             "timestamp": row[0].isoformat() if row[0] else None,
             "total": row[1],
-            "mil": row[2],
-            "other": row[3]
         })
     
     cur.close()
@@ -434,8 +414,6 @@ def get_country_info(
     query = """
         SELECT 
             COUNT(*) as total_events,
-            COUNT(*) FILTER (WHERE typology = 'MIL') as mil_events,
-            COUNT(*) FILTER (WHERE typology = 'OTHER') as other_events,
             COUNT(DISTINCT author) as unique_authors,
             MAX(date_published) as last_event_date
         FROM public.tweets t
@@ -456,8 +434,6 @@ def get_country_info(
         "country": country_name,
         "period_hours": hours,
         "total_events": result[0] if result else 0,
-        "mil_events": result[1] if result else 0,
-        "other_events": result[2] if result else 0,
         "unique_authors": result[3] if result else 0,
         "last_event_date": result[4].isoformat() if result and result[4] else None
     }
