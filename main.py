@@ -18,7 +18,7 @@ Configuration :
 - Variables d'environnement : Chargées depuis fichier .env
 """
 
-from fastapi import FastAPI, Response, APIRouter, Query
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import psycopg2
@@ -318,96 +318,73 @@ def get_last_tweet_date():
 NOUVEAU ENDPOINT À AJOUTER DANS TON FICHIER API (main.py ou api.py)
 ====================================================================
 """
+
 @app.get("/api/twitter_conflicts/country_stats")
 def get_country_stats(
     country_name: str,
-    hours: int = Query(24, ge=1)
+    hours: int = 24
 ):
+    """
+    Retourne les statistiques d'événements par pays agrégées par période.
+    
+    Args:
+        country_name (str): Nom du pays (ex: "Ukraine", "Russia")
+        hours (int): Période en heures (24, 168=7j, 720=30j)
+        
+    Returns:
+        dict: Données agrégées par intervalle de temps avec comptages
+    """
     conn = get_db_connection()
     cur = conn.cursor()
-
-    # Déterminer l'intervalle
+    
+    # Déterminer l'intervalle d'agrégation selon la période
     if hours <= 24:
+        # 1 jour : agrégation toutes les 2 heures
         interval_hours = 2
-        interval_sql = '2 hours'
-        bucket_format = 'YYYY-MM-DD HH24:MI'  # pour labels clairs si besoin
+        interval_sql = "2 hours"
     elif hours <= 168:  # 7 jours
+        # 7 jours : agrégation toutes les 12 heures
         interval_hours = 12
-        interval_sql = '12 hours'
-        bucket_format = 'YYYY-MM-DD HH24'
-    else:  # 30 jours ou plus
+        interval_sql = "12 hours"
+    else:  # 30 jours
+        # 30 jours : agrégation par jour
         interval_hours = 24
-        interval_sql = '1 day'
-        bucket_format = 'YYYY-MM-DD'
-
-    # ───────────────────────────────────────────────
-    # 1. Date de fin = NOW()
-    # 2. Date de début = NOW() - hours
-    # ───────────────────────────────────────────────
-
+        interval_sql = "1 day"
+    
     query = """
-    WITH params AS (
+        WITH time_buckets AS (
+            SELECT 
+                DATE_TRUNC('hour', date_published) + 
+                INTERVAL '%s' * FLOOR(EXTRACT(EPOCH FROM (date_published - DATE_TRUNC('hour', date_published))) / (EXTRACT(EPOCH FROM INTERVAL '%s'))) AS time_bucket,
+                typology
+            FROM public.tweets t
+            LEFT JOIN public.world_countries wc ON ST_Contains(wc.geom, t.geom)
+            WHERE 
+                wc.SOVEREIGNT = %%s
+                AND date_published >= NOW() - INTERVAL '%%s hours'
+        )
         SELECT 
-            NOW() - INTERVAL '%s hours' AS period_start,
-            NOW() AS period_end,
-            INTERVAL '%s' AS bucket_size
-    ),
-    all_buckets AS (
-        SELECT 
-            gs.time_bucket
-        FROM params p,
-        generate_series(
-            date_trunc('hour', p.period_start),
-            date_trunc('hour', p.period_end),
-            p.bucket_size
-        ) AS gs(time_bucket)
-    ),
-    filtered_tweets AS (
-        SELECT 
-            date_published,
-            1 AS event_count
-        FROM public.tweets t
-        LEFT JOIN public.world_countries wc ON ST_Contains(wc.geom, t.geom)
-        WHERE 
-            wc.SOVEREIGNT = %s
-            AND date_published >= (SELECT period_start FROM params)
-            AND date_published <= (SELECT period_end FROM params)
-    ),
-    aggregated AS (
-        SELECT 
-            date_trunc(%s, ft.date_published) AS time_bucket,
-            COUNT(*) AS total
-        FROM filtered_tweets ft
-        GROUP BY 1
-    )
-    SELECT 
-        ab.time_bucket,
-        COALESCE(agg.total, 0) AS total
-    FROM all_buckets ab
-    LEFT JOIN aggregated agg ON ab.time_bucket = agg.time_bucket
-    ORDER BY ab.time_bucket ASC;
-    """
-
-    # Exécute avec le bon troncature selon interval
-    cur.execute(query, (
-        hours,
-        interval_sql,
-        country_name,
-        interval_sql   # pour date_trunc dans aggregated
-    ))
-
+            time_bucket,
+            COUNT(*) as total
+        FROM time_buckets
+        GROUP BY time_bucket
+        ORDER BY time_bucket ASC;
+    """ % (interval_sql, interval_sql)
+    
+    cur.execute(query, (country_name, hours))
+    
     results = cur.fetchall()
-
+    
     data = []
     for row in results:
         data.append({
             "timestamp": row[0].isoformat() if row[0] else None,
-            "total": int(row[1]),
+            "total": row[1],
         })
-
+    
     cur.close()
     conn.close()
-
+    
     return {
         "country": country_name,
         "period_hours": hours,
