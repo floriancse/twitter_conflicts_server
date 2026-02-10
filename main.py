@@ -235,34 +235,38 @@ def get_tweets(hours: int = 24, q: Optional[str] = None, authors: Optional[str] 
 
     # Requête SQL avec construction GeoJSON intégrée incluant les images
     query = f"""
-        SELECT json_build_object(
-            'type', 'FeatureCollection',
-            'features', json_agg(
-                json_build_object(
-                    'type', 'Feature',
-                    'geometry', ST_AsGeoJSON(t.geom)::json,
-                    'properties', json_build_object(
-                        'id', t.id,
-                        'url', t.url,
-                        'author', t.author,
-                        'date_published', t.date_published,
-                        'body', t.body,
-                        'accuracy', t.accuracy,
-                        'importance', t.importance,
-                        'typology', t.typology,
-                        'images', COALESCE(
-                            (
-                                SELECT json_agg(ti.image_url ORDER BY ti.image_url)
-                                FROM public.tweet_image ti
-                                WHERE ti.tweet_id = t.tweet_id
-                            ),
-                            '[]'::json
+        SELECT
+            JSON_BUILD_OBJECT(
+                'type', 'FeatureCollection',
+                'features', JSON_AGG(
+                    JSON_BUILD_OBJECT(
+                        'type', 'Feature',
+                        'geometry', ST_AsGeoJSON(t.geom)::JSON,
+                        'properties', JSON_BUILD_OBJECT(
+                            'id',               t.id,
+                            'url',              t.url,
+                            'author',           t.author,
+                            'date_published',   t.date_published,
+                            'body',             t.body,
+                            'accuracy',         t.accuracy,
+                            'importance',       t.importance,
+                            'typology',         t.typology,
+                            'country_name',     wc.SOVEREIGNT,
+                            'images', COALESCE(
+                                (
+                                    SELECT JSON_AGG(ti.image_url ORDER BY ti.image_url)
+                                    FROM public.tweet_image ti
+                                    WHERE ti.tweet_id = t.tweet_id
+                                ),
+                                '[]'::JSON
+                            )
                         )
                     )
                 )
             )
-        )
         FROM public.tweets t
+        LEFT JOIN public.world_countries wc
+            ON ST_Contains(wc.geom, t.geom)
         WHERE {where_clause};
     """
 
@@ -308,4 +312,5 @@ def get_last_tweet_date():
     conn.close()
 
     return {"last_date": get_date[0], "last_hour": get_date[1]}
+
 
