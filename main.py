@@ -314,3 +314,150 @@ def get_last_tweet_date():
     return {"last_date": get_date[0], "last_hour": get_date[1]}
 
 
+"""
+NOUVEAU ENDPOINT À AJOUTER DANS TON FICHIER API (main.py ou api.py)
+====================================================================
+"""
+
+@app.get("/api/twitter_conflicts/country_stats")
+def get_country_stats(
+    country_name: str,
+    hours: int = 24
+):
+    """
+    Retourne les statistiques d'événements par pays agrégées par période.
+    
+    Args:
+        country_name (str): Nom du pays (ex: "Ukraine", "Russia")
+        hours (int): Période en heures (24, 168=7j, 720=30j)
+        
+    Returns:
+        dict: Données agrégées par intervalle de temps avec comptages
+        
+    Format de réponse:
+    {
+        "country": "Ukraine",
+        "period_hours": 24,
+        "interval_hours": 2,
+        "data": [
+            {
+                "timestamp": "2026-02-10T00:00:00",
+                "total": 15,
+                "mil": 10,
+                "other": 5
+            },
+            ...
+        ]
+    }
+    """
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Déterminer l'intervalle d'agrégation selon la période
+    if hours <= 24:
+        # 1 jour : agrégation toutes les 2 heures
+        interval_hours = 2
+        interval_sql = "2 hours"
+    elif hours <= 168:  # 7 jours
+        # 7 jours : agrégation toutes les 12 heures
+        interval_hours = 12
+        interval_sql = "12 hours"
+    else:  # 30 jours
+        # 30 jours : agrégation par jour
+        interval_hours = 24
+        interval_sql = "1 day"
+    
+    query = """
+        WITH time_buckets AS (
+            SELECT 
+                DATE_TRUNC('hour', date_published) + 
+                INTERVAL '%s' * FLOOR(EXTRACT(EPOCH FROM (date_published - DATE_TRUNC('hour', date_published))) / (EXTRACT(EPOCH FROM INTERVAL '%s'))) AS time_bucket,
+                typology
+            FROM public.tweets t
+            LEFT JOIN public.world_countries wc ON ST_Contains(wc.geom, t.geom)
+            WHERE 
+                wc.SOVEREIGNT = %%s
+                AND date_published >= NOW() - INTERVAL '%%s hours'
+        )
+        SELECT 
+            time_bucket,
+            COUNT(*) as total,
+            COUNT(*) FILTER (WHERE typology = 'MIL') as mil,
+            COUNT(*) FILTER (WHERE typology = 'OTHER') as other
+        FROM time_buckets
+        GROUP BY time_bucket
+        ORDER BY time_bucket ASC;
+    """ % (interval_sql, interval_sql)
+    
+    cur.execute(query, (country_name, hours))
+    
+    results = cur.fetchall()
+    
+    data = []
+    for row in results:
+        data.append({
+            "timestamp": row[0].isoformat() if row[0] else None,
+            "total": row[1],
+            "mil": row[2],
+            "other": row[3]
+        })
+    
+    cur.close()
+    conn.close()
+    
+    return {
+        "country": country_name,
+        "period_hours": hours,
+        "interval_hours": interval_hours,
+        "data": data
+    }
+
+
+@app.get("/api/twitter_conflicts/country_info")
+def get_country_info(
+    country_name: str,
+    hours: int = 24
+):
+    """
+    Retourne les informations générales d'un pays pour une période donnée.
+    
+    Args:
+        country_name (str): Nom du pays
+        hours (int): Période en heures
+        
+    Returns:
+        dict: Statistiques générales du pays
+    """
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    query = """
+        SELECT 
+            COUNT(*) as total_events,
+            COUNT(*) FILTER (WHERE typology = 'MIL') as mil_events,
+            COUNT(*) FILTER (WHERE typology = 'OTHER') as other_events,
+            COUNT(DISTINCT author) as unique_authors,
+            MAX(date_published) as last_event_date
+        FROM public.tweets t
+        LEFT JOIN public.world_countries wc ON ST_Contains(wc.geom, t.geom)
+        WHERE 
+            wc.SOVEREIGNT = %s
+            AND date_published >= NOW() - INTERVAL '%s hours';
+    """
+    
+    cur.execute(query, (country_name, hours))
+    
+    result = cur.fetchone()
+    
+    cur.close()
+    conn.close()
+    
+    return {
+        "country": country_name,
+        "period_hours": hours,
+        "total_events": result[0] if result else 0,
+        "mil_events": result[1] if result else 0,
+        "other_events": result[2] if result else 0,
+        "unique_authors": result[3] if result else 0,
+        "last_event_date": result[4].isoformat() if result and result[4] else None
+    }
