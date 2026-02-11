@@ -196,7 +196,16 @@ def get_authors(hours: int = 720):
 
 
 @app.get("/api/twitter_conflicts/tweets.geojson")
-def get_tweets(hours: int = 24, q: Optional[str] = None, authors: Optional[str] = None):
+def get_tweets(
+    hours: int = 24,
+    q: Optional[str] = None,
+    authors: Optional[str] = None,
+    country: Optional[str] = None,           # ← nouveau paramètre
+    format: str = "geojson",                  # ← "geojson" (défaut) ou "list"
+    sort: str = "date_desc",                  # date_desc, importance_desc, etc.
+    page: int = 1,
+    size: int = 50
+):
     """
     Retourne les tweets géolocalisés en format GeoJSON avec filtrage avancé.
     
@@ -231,6 +240,10 @@ def get_tweets(hours: int = 24, q: Optional[str] = None, authors: Optional[str] 
             conditions.append(f"author IN ({placeholders})")
             params.extend(author_list)
 
+    if country:
+        conditions.append("wc.SOVEREIGNT = %s")
+        params.append(country)
+        
     where_clause = " AND ".join(conditions)
 
     # Requête SQL avec construction GeoJSON intégrée incluant les images
@@ -269,6 +282,7 @@ def get_tweets(hours: int = 24, q: Optional[str] = None, authors: Optional[str] 
             ON ST_Contains(wc.geom, t.geom)
         WHERE {where_clause};
     """
+
 
     cur.execute(query, params)
 
