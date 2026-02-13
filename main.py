@@ -298,40 +298,6 @@ def get_tweets(
     return Response(content=json.dumps(geojson_data), media_type="application/json")
 
 
-@app.get("/api/twitter_conflicts/last_tweet_date")
-def get_last_tweet_date():
-    """
-    Retourne la date et l'heure du dernier tweet enregistré dans la base.
-    
-    Returns:
-        dict: {"last_date": "2026-02-06", "last_hour": "14:23:45"}
-        
-    Utilisé pour afficher la fraîcheur des données dans l'interface.
-    """
-    conn = get_db_connection()
-    cur = conn.cursor()
-
-    cur.execute(
-        """
-        SELECT
-            MAX(DATE_PUBLISHED)::date as last_date, 
-            MAX(DATE_PUBLISHED)::time as last_hour
-        FROM
-            public.TWEETS;
-    """
-    )
-
-    get_date = cur.fetchone()
-    cur.close()
-    conn.close()
-
-    return {"last_date": get_date[0], "last_hour": get_date[1]}
-
-
-"""
-NOUVEAU ENDPOINT À AJOUTER DANS TON FICHIER API (main.py ou api.py)
-====================================================================
-"""
 
 @app.get("/api/twitter_conflicts/country_stats")
 def get_country_stats(
