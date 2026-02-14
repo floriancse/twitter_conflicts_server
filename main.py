@@ -143,7 +143,7 @@ def get_disputed_area():
                         'geometry',
                         ST_ASGEOJSON (GEOM)::JSON,
                         'properties',
-                        JSON_BUILD_OBJECT('id', OGC_FID, 'name', NAME_FR)
+                        JSON_BUILD_OBJECT('id', OGC_FID, 'name', "NAME_FR")
                     )
                 )
             )
@@ -241,7 +241,7 @@ def get_tweets(
             params.extend(author_list)
 
     if area:
-        conditions.append("wa.NAME_FR = %s")
+        conditions.append("wa."NAME_FR" = %s")
         params.append(area)
         
     where_clause = " AND ".join(conditions)
@@ -264,7 +264,7 @@ def get_tweets(
                             'accuracy',         t.accuracy,
                             'importance',       t.importance,
                             'typology',         t.typology,
-                            'area_name',     wa.NAME_FR,
+                            'area_name',     wa."NAME_FR",
                             'images', COALESCE(
                                 (
                                     SELECT JSON_AGG(ti.image_url ORDER BY ti.image_url)
@@ -340,7 +340,7 @@ def get_area_stats(
             FROM public.tweets t
             LEFT JOIN public.world_areas wa ON ST_Contains(wa.geom, t.geom)
             WHERE 
-                wa.NAME_FR = %%s
+                wa."NAME_FR" = %%s
                 AND date_published >= NOW() - INTERVAL '%%s hours'
         )
         SELECT 
@@ -399,7 +399,7 @@ def get_area_info(
         FROM public.tweets t
         LEFT JOIN public.world_areas wa ON ST_Contains(wa.geom, t.geom)
         WHERE 
-            wa.NAME_FR = %s
+            wa."NAME_FR" = %s
             AND date_published >= NOW() - INTERVAL '%s hours';
     """
     
