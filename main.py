@@ -200,7 +200,7 @@ def get_tweets(
     hours: int = 24,
     q: Optional[str] = None,
     authors: Optional[str] = None,
-    country: Optional[str] = None,           # ← nouveau paramètre
+    area: Optional[str] = None,           # ← nouveau paramètre
     format: str = "geojson",                  # ← "geojson" (défaut) ou "list"
     sort: str = "date_desc",                  # date_desc, importance_desc, etc.
     page: int = 1,
@@ -240,9 +240,9 @@ def get_tweets(
             conditions.append(f"author IN ({placeholders})")
             params.extend(author_list)
 
-    if country:
-        conditions.append("wc.NAME_FR = %s")
-        params.append(country)
+    if area:
+        conditions.append("wa.NAME_FR = %s")
+        params.append(area)
         
     where_clause = " AND ".join(conditions)
 
@@ -264,7 +264,7 @@ def get_tweets(
                             'accuracy',         t.accuracy,
                             'importance',       t.importance,
                             'typology',         t.typology,
-                            'country_name',     wc.NAME_FR,
+                            'area_name',     wa.NAME_FR,
                             'images', COALESCE(
                                 (
                                     SELECT JSON_AGG(ti.image_url ORDER BY ti.image_url)
@@ -278,8 +278,8 @@ def get_tweets(
                 )
             )
         FROM public.tweets t
-        LEFT JOIN public.world_areas wc
-            ON ST_Contains(wc.geom, t.geom)
+        LEFT JOIN public.world_areas wa
+            ON ST_Contains(wa.geom, t.geom)
         WHERE {where_clause};
     """
 
@@ -299,16 +299,16 @@ def get_tweets(
 
 
 
-@app.get("/api/twitter_conflicts/country_stats")
-def get_country_stats(
-    country_name: str,
+@app.get("/api/twitter_conflicts/area_stats")
+def get_area_stats(
+    area_name: str,
     hours: int = 24
 ):
     """
     Retourne les statistiques d'événements par pays agrégées par période.
     
     Args:
-        country_name (str): Nom du pays (ex: "Ukraine", "Russia")
+        area_name (str): Nom du pays (ex: "Ukraine", "Russia")
         hours (int): Période en heures (24, 168=7j, 720=30j)
         
     Returns:
@@ -338,9 +338,9 @@ def get_country_stats(
                 INTERVAL '%s' * FLOOR(EXTRACT(EPOCH FROM (date_published - DATE_TRUNC('hour', date_published))) / (EXTRACT(EPOCH FROM INTERVAL '%s'))) AS time_bucket,
                 typology
             FROM public.tweets t
-            LEFT JOIN public.world_areas wc ON ST_Contains(wc.geom, t.geom)
+            LEFT JOIN public.world_areas wa ON ST_Contains(wa.geom, t.geom)
             WHERE 
-                wc.NAME_FR = %%s
+                wa.NAME_FR = %%s
                 AND date_published >= NOW() - INTERVAL '%%s hours'
         )
         SELECT 
@@ -351,7 +351,7 @@ def get_country_stats(
         ORDER BY time_bucket ASC;
     """ % (interval_sql, interval_sql)
     
-    cur.execute(query, (country_name, hours))
+    cur.execute(query, (area_name, hours))
     
     results = cur.fetchall()
     
@@ -366,23 +366,23 @@ def get_country_stats(
     conn.close()
     
     return {
-        "country": country_name,
+        "area": area_name,
         "period_hours": hours,
         "interval_hours": interval_hours,
         "data": data
     }
 
 
-@app.get("/api/twitter_conflicts/country_info")
-def get_country_info(
-    country_name: str,
+@app.get("/api/twitter_conflicts/area_info")
+def get_area_info(
+    area_name: str,
     hours: int = 24
 ):
     """
     Retourne les informations générales d'un pays pour une période donnée.
     
     Args:
-        country_name (str): Nom du pays
+        area_name (str): Nom du pays
         hours (int): Période en heures
         
     Returns:
@@ -397,13 +397,13 @@ def get_country_info(
             COUNT(DISTINCT author) as unique_authors,
             MAX(date_published) as last_event_date
         FROM public.tweets t
-        LEFT JOIN public.world_areas wc ON ST_Contains(wc.geom, t.geom)
+        LEFT JOIN public.world_areas wa ON ST_Contains(wa.geom, t.geom)
         WHERE 
-            wc.NAME_FR = %s
+            wa.NAME_FR = %s
             AND date_published >= NOW() - INTERVAL '%s hours';
     """
     
-    cur.execute(query, (country_name, hours))
+    cur.execute(query, (area_name, hours))
     
     result = cur.fetchone()
     
@@ -411,7 +411,7 @@ def get_country_info(
     conn.close()
     
     return {
-        "country": country_name,
+        "area": area_name,
         "period_hours": hours,
         "total_events":   result[0] if result else 0,
         "unique_authors": result[1] if result else 0,
