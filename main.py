@@ -116,48 +116,39 @@ def get_disputed_area():
 
 @app.get("/api/twitter_conflicts/world_areas.geojson")
 def get_disputed_area():
-    """
-    Retourne les pays en format GeoJSON.
-    
-    Utilise les fonctions PostGIS pour convertir les géométries PostgreSQL
-    en GeoJSON standard compatible avec les bibliothèques cartographiques (Leaflet, Mapbox).
-    
-    Returns:
-        Response: GeoJSON FeatureCollection contenant les polygones des zones disputées
-    """
     conn = get_db_connection()
     cur = conn.cursor()
 
-    # Construction du GeoJSON directement en SQL avec json_build_object et ST_AsGeoJSON
-    cur.execute(
-        """
-        SELECT
-            JSON_BUILD_OBJECT(
-                'type',
-                'FeatureCollection',
-                'features',
-                JSON_AGG(
-                    JSON_BUILD_OBJECT(
-                        'type',
-                        'Feature',
-                        'geometry',
-                        ST_ASGEOJSON (GEOM)::JSON,
-                        'properties',
-                        JSON_BUILD_OBJECT('id', id, 'name', "NAME_FR")
-                    )
+    cur.execute("""
+        SELECT JSON_BUILD_OBJECT(
+            'type', 'FeatureCollection',
+            'features', JSON_AGG(
+                JSON_BUILD_OBJECT(
+                    'type', 'Feature',
+                    'geometry', ST_AsGeoJSON(geom, 6)::JSON,  -- ← 6 décimales suffisent largement pour le monde
+                    'properties', JSON_BUILD_OBJECT('id', id, 'name', "NAME_FR")
                 )
             )
-        FROM
-            PUBLIC.world_areas;
-    """
-    )
+        )
+        FROM PUBLIC.world_areas;
+    """)
 
     geojson_data = cur.fetchone()[0]
 
     cur.close()
     conn.close()
 
-    return Response(content=json.dumps(geojson_data), media_type="application/json")
+    # JSON ultra-compact : pas d'espaces, pas d'indentation
+    compact_geojson = json.dumps(
+        geojson_data,
+        separators=(',', ':'),   # enlève tous les espaces inutiles
+        ensure_ascii=False       # garde les accents français
+    )
+
+    return Response(
+        content=compact_geojson,
+        media_type="application/json"
+    )
 
 
 @app.get("/api/twitter_conflicts/authors")
