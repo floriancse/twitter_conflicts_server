@@ -114,7 +114,7 @@ def get_disputed_area():
     return Response(content=json.dumps(geojson_data), media_type="application/json")
 
 
-@app.get("/api/twitter_conflicts/world_countries.geojson")
+@app.get("/api/twitter_conflicts/world_areas.geojson")
 def get_disputed_area():
     """
     Retourne les pays en format GeoJSON.
@@ -143,12 +143,12 @@ def get_disputed_area():
                         'geometry',
                         ST_ASGEOJSON (GEOM)::JSON,
                         'properties',
-                        JSON_BUILD_OBJECT('id', OGC_FID, 'name', SOVEREIGNT)
+                        JSON_BUILD_OBJECT('id', OGC_FID, 'name', NAME_FR)
                     )
                 )
             )
         FROM
-            PUBLIC.WORLD_COUNTRIES;
+            PUBLIC.world_areas;
     """
     )
 
@@ -241,7 +241,7 @@ def get_tweets(
             params.extend(author_list)
 
     if country:
-        conditions.append("wc.SOVEREIGNT = %s")
+        conditions.append("wc.NAME_FR = %s")
         params.append(country)
         
     where_clause = " AND ".join(conditions)
@@ -264,7 +264,7 @@ def get_tweets(
                             'accuracy',         t.accuracy,
                             'importance',       t.importance,
                             'typology',         t.typology,
-                            'country_name',     wc.SOVEREIGNT,
+                            'country_name',     wc.NAME_FR,
                             'images', COALESCE(
                                 (
                                     SELECT JSON_AGG(ti.image_url ORDER BY ti.image_url)
@@ -278,7 +278,7 @@ def get_tweets(
                 )
             )
         FROM public.tweets t
-        LEFT JOIN public.world_countries wc
+        LEFT JOIN public.world_areas wc
             ON ST_Contains(wc.geom, t.geom)
         WHERE {where_clause};
     """
@@ -338,9 +338,9 @@ def get_country_stats(
                 INTERVAL '%s' * FLOOR(EXTRACT(EPOCH FROM (date_published - DATE_TRUNC('hour', date_published))) / (EXTRACT(EPOCH FROM INTERVAL '%s'))) AS time_bucket,
                 typology
             FROM public.tweets t
-            LEFT JOIN public.world_countries wc ON ST_Contains(wc.geom, t.geom)
+            LEFT JOIN public.world_areas wc ON ST_Contains(wc.geom, t.geom)
             WHERE 
-                wc.SOVEREIGNT = %%s
+                wc.NAME_FR = %%s
                 AND date_published >= NOW() - INTERVAL '%%s hours'
         )
         SELECT 
@@ -397,9 +397,9 @@ def get_country_info(
             COUNT(DISTINCT author) as unique_authors,
             MAX(date_published) as last_event_date
         FROM public.tweets t
-        LEFT JOIN public.world_countries wc ON ST_Contains(wc.geom, t.geom)
+        LEFT JOIN public.world_areas wc ON ST_Contains(wc.geom, t.geom)
         WHERE 
-            wc.SOVEREIGNT = %s
+            wc.NAME_FR = %s
             AND date_published >= NOW() - INTERVAL '%s hours';
     """
     

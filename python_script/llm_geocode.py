@@ -47,29 +47,86 @@ def extract_events_and_geoloc(tweet_text):
     prompt = f"""
     Tu es un analyste OSINT spécialisé en extraction d'événements géopolitiques et militaires à partir de tweets.
 
+    RÈGLE D’OR (priorité absolue) :
+    Dès qu’il y a le mot "waters", "maritime waters", "at sea", "in the sea", "naval", "warship", "navy", "fishing boat" + saisie/interception, "collision", "refueling", ou toute action clairement maritime → le point DOIT être placé **en mer**, même si un pays, une île ou un continent est mentionné juste avant ou après. Ne place jamais le point sur la terre ferme dans ce cas.
+
     Objectif :
-    Extraire uniquement des informations factuelles, classifier l'événement et relier l'action à un lieu réel évaluer son importance stratégique.
+    Extraire uniquement des informations factuelles, classifier l'événement et relier l'action à un lieu réel. Évaluer son importance stratégique.
 
     Catégories de Typologie (CHOISIR UNIQUEMENT PARMI) :
     - MIL : Seulement si le texte mentionne explicitement un bombardement, une frappe de missile/drone, ou un combat direct avéré (avec preuve ou source claire).
     - OTHER : Tout autre événement.
 
-    Règles STRICTES de Géolocalisation :
-    - N'invente jamais un lieu précis s'il n'est pas explicitement mentionné.
-    - Si le lieu est nommé explicitement (ville, base) : "location_type": "explicit", "confidence": "high".
-    - Si le texte décrit une opération dans une zone connue sans ville précise (ex : Middle East, Northern Atlantic): Choisis un point central représentatif, "location_type": "inferred", "confidence": "medium".
-    - Si aucun lieu n'est identifiable : "location_type": "unknown", "latitude": null, "longitude": null.
-    - Pour les localisations maritimes (océan, mer, golfe, canal, ou toute étendue d'eau mentionnée comme "over the Black Sea", "in the Atlantic Ocean", etc.) : Choisis toujours un point central dans les eaux, pas sur terre. Utilise des coordonnées approximatives au milieu de la zone aquatique concernée (ex : pour la Mer Noire, environ 43.0 latitude, 34.0 longitude). "location_type": "inferred" si non explicite, "confidence": "medium".
-    - Pour les localisations terrestres connues (pays explicitement donné) : Choisis toujours un point dans le pays, à l'intérieur de ses frontières.
+    Règles STRICTES de Géolocalisation (appliquer dans cet ordre de priorité) :
 
-    Critères d'Importance Stratégique (Note de 1 à 5) :
-        1 : Événement local/mineur (escarmouche isolée, déclaration de routine).
-        2 : Événement tactique (mouvement de troupes local, frappe sur cible secondaire).
-        3 : Événement opérationnel (perte d'infrastructure clé, changement de ligne de front).
-        4 : Événement stratégique (changement de politique majeure, livraison d'armes lourdes, escalade régionale).
-        5 : Événement critique mondial (déclaration de guerre, frappe nucléaire, chute d'un gouvernement).
-        
-    Format JSON attendu :
+    1. Détection maritime (priorité absolue)
+      Si le texte contient un des mots-clés suivants ou une situation navale claire :
+      - maritime waters, territorial waters, in waters, at sea, naval, warship, navy, fishing boat seized/intercepted, collision, refueling, exercice naval, etc.
+      → Toujours traiter comme localisation maritime.
+      → Placement obligatoire : point **uniquement dans l’eau** (jamais sur terre).
+      → Choisis un point représentatif dans la zone aquatique concernée, le plus proche possible de la région / pays nommé.
+
+      Exemples de coordonnées à utiliser / s’inspirer :
+      - Japanese / East China Sea maritime waters     → 34.5, 138.5
+      - waters near South America                     → -15.0, -38.0 (Atlantique large du Brésil)
+      - South China Sea                               → 10.0, 115.0
+      - Black Sea                                     → 43.0, 34.0
+      - Red Sea                                       → 18.0, 38.0
+      - Philippine Sea                                → 20.0, 135.0
+      - Mediterranean Sea (général)                   → 35.0, 18.0
+      - Persian Gulf                                  → 26.0, 52.0
+      - near Taiwan Strait                            → 24.0, 120.0
+
+    2. Localisation terrestre explicite
+      Seulement si AUCUN mot maritime n’est présent ET qu’un pays/ville/base est nommé clairement.
+      → Point à l’intérieur des frontières du pays / de la ville.
+
+    3. Cas "near [pays/continent]" sans indication maritime
+      → Point terrestre central du pays/continent.
+
+    - location_type : "inferred" dès qu’on utilise une zone maritime large ou une approximation.
+    - confidence   : "medium" pour toute localisation maritime non précisément chiffrée (ex: pas de coordonnées exactes dans le tweet).
+
+    Critères d’Importance Stratégique (Note de 1 à 5) :
+    1 : Événement local/mineur (escarmouche isolée, déclaration de routine).
+    2 : Événement tactique (mouvement de troupes local, frappe sur cible secondaire).
+    3 : Événement opérationnel (perte d'infrastructure clé, changement de ligne de front, incident naval significatif).
+    4 : Événement stratégique (changement de politique majeure, livraison d’armes lourdes, escalade régionale).
+    5 : Événement critique mondial (déclaration de guerre, frappe nucléaire, chute d’un gouvernement).
+
+    Exemples de sortie attendue :
+
+    Tweet : "Japanese navy has seized a Chinese fishing boat which refused to stop for inspection in Japanese maritime waters-WSJ"
+    Sortie :
+    {{
+      "events": [{{
+        "event_summary": "La marine japonaise a saisi un bateau de pêche chinois qui refusait de s'arrêter dans les eaux maritimes japonaises",
+        "typologie": "OTHER",
+        "strategic_importance": 3,
+        "main_location": "Japanese maritime waters",
+        "location_type": "inferred",
+        "latitude": 34.5,
+        "longitude": 138.5,
+        "confidence": "medium"
+      }}]
+    }}
+
+    Tweet : "A U.S. warship and a Navy supply vessel collided during refueling in waters near South America-Reuters"
+    Sortie :
+    {{
+      "events": [{{
+        "event_summary": "Collision entre un navire de guerre américain et un navire ravitailleur de la Navy lors d'un ravitaillement en mer près de l'Amérique du Sud",
+        "typologie": "OTHER",
+        "strategic_importance": 3,
+        "main_location": "waters near South America",
+        "location_type": "inferred",
+        "latitude": -15.0,
+        "longitude": -38.0,
+        "confidence": "medium"
+      }}]
+    }}
+
+    Format JSON attendu (strict) :
     {{
       "events": [
         {{
@@ -78,8 +135,8 @@ def extract_events_and_geoloc(tweet_text):
           "strategic_importance": 1 | 2 | 3 | 4 | 5,
           "main_location": "nom du lieu ou null",
           "location_type": "explicit | inferred | unknown",
-          "latitude": 0.0,
-          "longitude": 0.0,
+          "latitude": float ou null,
+          "longitude": float ou null,
           "confidence": "high | medium | low"
         }}
       ]
