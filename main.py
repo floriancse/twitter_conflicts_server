@@ -146,15 +146,9 @@ def get_disputed_area():
         ensure_ascii=False       # garde les accents français
     )
 
-    gzipped = gzip.compress(compact_geojson.encode('utf-8'))
-
-    return StreamingResponse(
-        iter([gzipped]),
-        media_type="application/gzip",
-        headers={
-            "Content-Disposition": "attachment; filename=world_areas.geojson.gz",
-            "Content-Encoding": "gzip"
-        }
+    return Response(
+        content=compact_geojson,
+        media_type="application/json"
     )
 
 
