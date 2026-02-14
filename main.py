@@ -143,7 +143,7 @@ def get_disputed_area():
                         'geometry',
                         ST_ASGEOJSON (GEOM)::JSON,
                         'properties',
-                        JSON_BUILD_OBJECT('id', id, 'name', NAME_FR)
+                        JSON_BUILD_OBJECT('id', id, 'name', "NAME_FR")
                     )
                 )
             )
