@@ -97,7 +97,7 @@ def get_disputed_area():
             'features', json_agg(
                 json_build_object(
                     'type', 'Feature',
-                    'geometry', ST_AsGeoJSON(geom)::json,
+                    'geometry', ST_AsGeoJSON(ST_Simplify(geom, 0.01), 4)::JSON,
                     'properties', json_build_object(
                         'id', id,
                         'name', name
