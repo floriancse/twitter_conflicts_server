@@ -118,7 +118,7 @@ def get_disputed_area():
 
 
 @app.get("/api/twitter_conflicts/world_areas.geojson")
-def get_disputed_area():
+def get_world_areas():
     conn = get_db_connection()
     cur = conn.cursor()
 
@@ -128,7 +128,7 @@ def get_disputed_area():
             'features', JSON_AGG(
                 JSON_BUILD_OBJECT(
                     'type', 'Feature',
-                    'geometry', ST_AsGeoJSON(geom, 6)::JSON,  -- ← 6 décimales suffisent largement pour le monde
+                    'geometry', ST_AsGeoJSON(ST_Simplify(geom, 0.01), 4)::JSON,
                     'properties', JSON_BUILD_OBJECT('id', id, 'name', "NAME_FR")
                 )
             )
