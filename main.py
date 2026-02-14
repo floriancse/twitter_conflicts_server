@@ -28,6 +28,7 @@ import geojson
 from datetime import datetime, timedelta
 from typing import Optional, List
 import gzip
+from fastapi.middleware.gzip import GZipMiddleware
 
 load_dotenv()
 
@@ -42,6 +43,7 @@ DB_CONFIG = {
 }
 
 app = FastAPI()
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Configuration CORS pour autoriser les requêtes depuis le frontend
 app.add_middleware(

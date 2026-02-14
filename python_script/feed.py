@@ -58,7 +58,7 @@ cur.execute("SELECT tweet_id from tweets")
 tweet_in_db = [i[0] for i in cur.fetchall()]
 
 # Liste des sources OSINT à scraper
-sources = ["@GeoConfirmed", "@sentdefender","@OSINTWarfare","@Osinttechnical","@Conflict_Radar","@WarMonitor3"]
+sources = ["@GeoConfirmed", "@sentdefender","@OSINTWarfare","@Osinttechnical","@Conflict_Radar","@WarMonitor3","@WarshipCam"]
 
 # Mapping de la confiance LLM vers les valeurs françaises de la BDD
 accuracy_table = {
