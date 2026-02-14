@@ -27,6 +27,7 @@ import json
 import geojson
 from datetime import datetime, timedelta
 from typing import Optional, List
+import gzip
 
 load_dotenv()
 
@@ -145,9 +146,15 @@ def get_disputed_area():
         ensure_ascii=False       # garde les accents français
     )
 
-    return Response(
-        content=compact_geojson,
-        media_type="application/json"
+    gzipped = gzip.compress(compact_geojson.encode('utf-8'))
+
+    return StreamingResponse(
+        iter([gzipped]),
+        media_type="application/gzip",
+        headers={
+            "Content-Disposition": "attachment; filename=world_areas.geojson.gz",
+            "Content-Encoding": "gzip"
+        }
     )
 
 
