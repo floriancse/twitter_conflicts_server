@@ -16,18 +16,19 @@ Configuration :
 - Base de données : PostgreSQL avec extension PostGIS
 - CORS : Activé pour développement local 
 - Variables d'environnement : Chargées depuis fichier .env
-- Connection Pooling : Pool de connexions pour performances optimales
 """
 
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware
 from dotenv import load_dotenv
-from psycopg2 import pool
+import psycopg2
 import os
 import json
+import geojson
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List
+import gzip
+from fastapi.middleware.gzip import GZipMiddleware
 
 load_dotenv()
 
@@ -41,12 +42,7 @@ DB_CONFIG = {
     "sslmode": os.getenv("DB_SSLMODE", "disable"),      
 }
 
-# Pool de connexions (créé au démarrage de l'application)
-connection_pool = None
-
 app = FastAPI()
-
-# Middleware GZIP pour compression automatique
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Configuration CORS pour autoriser les requêtes depuis le frontend
@@ -62,100 +58,21 @@ app.add_middleware(
     allow_headers=["*"],             # Tous les headers autorisés
 )
 
-
-@app.on_event("startup")
-def startup_event():
-    """
-    Initialise le pool de connexions au démarrage de l'application.
-    Crée 2 connexions minimum et permet jusqu'à 10 connexions simultanées.
-    """
-    global connection_pool
-    try:
-        connection_pool = pool.SimpleConnectionPool(
-            minconn=2,      # Minimum 2 connexions toujours ouvertes
-            maxconn=10,     # Maximum 10 connexions simultanées
-            host=DB_CONFIG["host"],
-            port=DB_CONFIG["port"],
-            dbname=DB_CONFIG["database"],
-            user=DB_CONFIG["user"],
-            password=DB_CONFIG["password"],
-        )
-        print("✅ Database connection pool created successfully")
-    except Exception as e:
-        print(f"❌ Error creating connection pool: {e}")
-        raise
-
-
-@app.on_event("shutdown")
-def shutdown_event():
-    """
-    Ferme proprement toutes les connexions du pool à l'arrêt de l'application.
-    """
-    global connection_pool
-    if connection_pool:
-        connection_pool.closeall()
-        print("🔌 Database connection pool closed")
-
-
 def get_db_connection():
     """
-    Récupère une connexion depuis le pool.
+    Établit et retourne une connexion à la base de données PostgreSQL.
     
     Returns:
-        psycopg2.connection: Connexion active depuis le pool
-        
-    Note:
-        Utiliser toujours dans un try/finally avec release_db_connection()
+        psycopg2.connection: Objet de connexion à la base de données
     """
-    if connection_pool is None:
-        raise Exception("Connection pool not initialized")
-    return connection_pool.getconn()
-
-
-def release_db_connection(conn):
-    """
-    Libère une connexion vers le pool pour réutilisation.
-    
-    Args:
-        conn: Connexion à libérer
-        
-    Note:
-        TOUJOURS appeler cette fonction dans un bloc finally
-    """
-    if connection_pool and conn:
-        connection_pool.putconn(conn)
-
-
-@app.get("/api/health")
-def health_check():
-    """
-    Endpoint de santé pour vérifier que l'API et la base de données répondent.
-    
-    Returns:
-        dict: Status et timestamp
-    """
-    conn = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT 1;")
-        cur.close()
-        
-        return {
-            "status": "ok",
-            "database": "connected",
-            "timestamp": datetime.now().isoformat()
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "database": "disconnected",
-            "error": str(e),
-            "timestamp": datetime.now().isoformat()
-        }
-    finally:
-        if conn:
-            release_db_connection(conn)
+    conn = psycopg2.connect(
+        host=DB_CONFIG["host"],
+        port=DB_CONFIG["port"],
+        dbname=DB_CONFIG["database"],
+        user=DB_CONFIG["user"],
+        password=DB_CONFIG["password"],
+    )
+    return conn
 
 
 @app.get("/api/twitter_conflicts/disputed_area.geojson")
@@ -169,96 +86,72 @@ def get_disputed_area():
     Returns:
         Response: GeoJSON FeatureCollection contenant les polygones des zones disputées
     """
-    conn = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
+    conn = get_db_connection()
+    cur = conn.cursor()
 
-        # Construction du GeoJSON directement en SQL avec json_build_object et ST_AsGeoJSON
-        cur.execute(
-            """
-            SELECT json_build_object(
-                'type', 'FeatureCollection',
-                'features', json_agg(
-                    json_build_object(
-                        'type', 'Feature',
-                        'geometry', ST_AsGeoJSON(ST_Simplify(geom, 0.01), 4)::json,
-                        'properties', json_build_object(
-                            'id', id,
-                            'name', name
-                        )
+    # Construction du GeoJSON directement en SQL avec json_build_object et ST_AsGeoJSON
+    cur.execute(
+        """
+        SELECT json_build_object(
+            'type', 'FeatureCollection',
+            'features', json_agg(
+                json_build_object(
+                    'type', 'Feature',
+                    'geometry', ST_AsGeoJSON(ST_Simplify(geom, 0.01), 4)::JSON,
+                    'properties', json_build_object(
+                        'id', id,
+                        'name', name
                     )
                 )
             )
-            FROM public.disputed_area;
-        """
         )
+        FROM public.disputed_area;
+    """
+    )
 
-        geojson_data = cur.fetchone()[0]
-        cur.close()
+    geojson_data = cur.fetchone()[0]
 
-        return Response(content=json.dumps(geojson_data), media_type="application/json")
-        
-    finally:
-        if conn:
-            release_db_connection(conn)
+    cur.close()
+    conn.close()
+
+    return Response(content=json.dumps(geojson_data), media_type="application/json")
 
 
 @app.get("/api/twitter_conflicts/world_areas.geojson")
 def get_world_areas():
-    """
-    Retourne les frontières des pays du monde en format GeoJSON optimisé.
-    
-    Optimisations appliquées:
-    - Simplification des géométries (ST_Simplify)
-    - Réduction de la précision à 4 décimales
-    - Compression JSON compacte
-    - GZIP automatique via middleware
-    
-    Returns:
-        Response: GeoJSON FeatureCollection avec cache headers
-    """
-    conn = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
+    conn = get_db_connection()
+    cur = conn.cursor()
 
-        cur.execute("""
-            SELECT JSON_BUILD_OBJECT(
-                'type', 'FeatureCollection',
-                'features', JSON_AGG(
-                    JSON_BUILD_OBJECT(
-                        'type', 'Feature',
-                        'geometry', ST_AsGeoJSON(ST_Simplify(geom, 0.01), 4)::JSON,
-                        'properties', JSON_BUILD_OBJECT('id', id, 'name', "NAME_FR")
-                    )
+    cur.execute("""
+        SELECT JSON_BUILD_OBJECT(
+            'type', 'FeatureCollection',
+            'features', JSON_AGG(
+                JSON_BUILD_OBJECT(
+                    'type', 'Feature',
+                    'geometry', ST_AsGeoJSON(ST_Simplify(geom, 0.01), 4)::JSON,
+                    'properties', JSON_BUILD_OBJECT('id', id, 'name', "NAME_FR")
                 )
             )
-            FROM PUBLIC.world_areas;
-        """)
-
-        geojson_data = cur.fetchone()[0]
-        cur.close()
-
-        # JSON ultra-compact : pas d'espaces, pas d'indentation
-        compact_geojson = json.dumps(
-            geojson_data,
-            separators=(',', ':'),   # enlève tous les espaces inutiles
-            ensure_ascii=False       # garde les accents français
         )
+        FROM PUBLIC.world_areas;
+    """)
 
-        return Response(
-            content=compact_geojson,
-            media_type="application/json",
-            headers={
-                "Cache-Control": "public, max-age=86400",  # Cache 24h
-                "Vary": "Accept-Encoding"
-            }
-        )
-        
-    finally:
-        if conn:
-            release_db_connection(conn)
+    geojson_data = cur.fetchone()[0]
+
+    cur.close()
+    conn.close()
+
+    # JSON ultra-compact : pas d'espaces, pas d'indentation
+    compact_geojson = json.dumps(
+        geojson_data,
+        separators=(',', ':'),   # enlève tous les espaces inutiles
+        ensure_ascii=False       # garde les accents français
+    )
+
+    return Response(
+        content=compact_geojson,
+        media_type="application/json"
+    )
 
 
 @app.get("/api/twitter_conflicts/authors")
@@ -274,30 +167,26 @@ def get_authors(hours: int = 720):
         
     Utilisé pour alimenter les filtres de recherche dans l'interface utilisateur.
     """
-    conn = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
+    conn = get_db_connection()
+    cur = conn.cursor()
 
-        # Requête avec intervalle dynamique basé sur NOW()
-        cur.execute(
-            """
-            SELECT DISTINCT author
-            FROM public.tweets
-            WHERE date_published >= NOW() - INTERVAL '%s hours'
-            ORDER BY author;
-            """,
-            (hours,)
-        )
+    # Requête avec intervalle dynamique basé sur NOW()
+    cur.execute(
+        """
+        SELECT DISTINCT author
+        FROM public.tweets
+        WHERE date_published >= NOW() - INTERVAL '%s hours'
+        ORDER BY author;
+        """,
+        (hours,)
+    )
 
-        authors = [row[0] for row in cur.fetchall()]
-        cur.close()
+    authors = [row[0] for row in cur.fetchall()]
 
-        return {"authors": authors}
-        
-    finally:
-        if conn:
-            release_db_connection(conn)
+    cur.close()
+    conn.close()
+
+    return {"authors": authors}
 
 
 @app.get("/api/twitter_conflicts/tweets.geojson")
@@ -305,9 +194,9 @@ def get_tweets(
     hours: int = 24,
     q: Optional[str] = None,
     authors: Optional[str] = None,
-    area: Optional[str] = None,
-    format: str = "geojson",
-    sort: str = "date_desc",
+    area: Optional[str] = None,           # ← nouveau paramètre
+    format: str = "geojson",                  # ← "geojson" (défaut) ou "list"
+    sort: str = "date_desc",                  # date_desc, importance_desc, etc.
     page: int = 1,
     size: int = 50
 ):
@@ -318,7 +207,6 @@ def get_tweets(
         hours (int): Période temporelle en heures (par défaut 24h)
         q (str, optional): Recherche textuelle (ILIKE sur body et author)
         authors (str, optional): Liste d'auteurs séparés par virgules (ex: "@user1,@user2")
-        area (str, optional): Filtre par pays
         
     Returns:
         Response: GeoJSON FeatureCollection avec les tweets et leurs métadonnées
@@ -326,87 +214,83 @@ def get_tweets(
     Exemple d'utilisation :
         /api/twitter_conflicts/tweets.geojson?hours=48&q=missile&authors=@GeoConfirmed
     """
-    conn = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
+    conn = get_db_connection()
+    cur = conn.cursor()
 
-        # Construction dynamique de la clause WHERE
-        conditions = ["date_published >= NOW() - INTERVAL '%s hours'"]
-        params = [hours]
+    # Construction dynamique de la clause WHERE
+    conditions = ["date_published >= NOW() - INTERVAL '%s hours'"]
+    params = [hours]
 
-        # Filtre de recherche textuelle (insensible à la casse)
-        if q:
-            conditions.append("(body ILIKE %s OR author ILIKE %s)")
-            params.extend([f"%{q}%", f"%{q}%"])
+    # Filtre de recherche textuelle (insensible à la casse)
+    if q:
+        conditions.append("(body ILIKE %s OR author ILIKE %s)")
+        params.extend([f"%{q}%", f"%{q}%"])
 
-        # Filtre par auteurs multiples
-        if authors:
-            author_list = [a.strip() for a in authors.split(',') if a.strip()]
-            if author_list:
-                placeholders = ','.join(['%s'] * len(author_list))
-                conditions.append(f"author IN ({placeholders})")
-                params.extend(author_list)
+    # Filtre par auteurs multiples
+    if authors:
+        author_list = [a.strip() for a in authors.split(',') if a.strip()]
+        if author_list:
+            placeholders = ','.join(['%s'] * len(author_list))
+            conditions.append(f"author IN ({placeholders})")
+            params.extend(author_list)
 
-        # Filtre par pays
-        if area:
-            conditions.append("""wa."NAME_FR" = %s""")
-            params.append(area)
-            
-        where_clause = " AND ".join(conditions)
+    if area:
+        conditions.append("""wa."NAME_FR" = %s""")
+        params.append(area)
+        
+    where_clause = " AND ".join(conditions)
 
-        # Requête SQL avec construction GeoJSON intégrée incluant les images
-        query = f"""
-            SELECT
-                JSON_BUILD_OBJECT(
-                    'type', 'FeatureCollection',
-                    'features', JSON_AGG(
-                        JSON_BUILD_OBJECT(
-                            'type', 'Feature',
-                            'geometry', ST_AsGeoJSON(t.geom)::JSON,
-                            'properties', JSON_BUILD_OBJECT(
-                                'id',               t.id,
-                                'url',              t.url,
-                                'author',           t.author,
-                                'date_published',   t.date_published,
-                                'body',             t.body,
-                                'accuracy',         t.accuracy,
-                                'importance',       t.importance,
-                                'typology',         t.typology,
-                                'area_name',        wa."NAME_FR",
-                                'images', COALESCE(
-                                    (
-                                        SELECT JSON_AGG(ti.image_url ORDER BY ti.image_url)
-                                        FROM public.tweet_image ti
-                                        WHERE ti.tweet_id = t.tweet_id
-                                    ),
-                                    '[]'::JSON
-                                )
+    # Requête SQL avec construction GeoJSON intégrée incluant les images
+    query = f"""
+        SELECT
+            JSON_BUILD_OBJECT(
+                'type', 'FeatureCollection',
+                'features', JSON_AGG(
+                    JSON_BUILD_OBJECT(
+                        'type', 'Feature',
+                        'geometry', ST_AsGeoJSON(t.geom)::JSON,
+                        'properties', JSON_BUILD_OBJECT(
+                            'id',               t.id,
+                            'url',              t.url,
+                            'author',           t.author,
+                            'date_published',   t.date_published,
+                            'body',             t.body,
+                            'accuracy',         t.accuracy,
+                            'importance',       t.importance,
+                            'typology',         t.typology,
+                            'area_name',     wa."NAME_FR",
+                            'images', COALESCE(
+                                (
+                                    SELECT JSON_AGG(ti.image_url ORDER BY ti.image_url)
+                                    FROM public.tweet_image ti
+                                    WHERE ti.tweet_id = t.tweet_id
+                                ),
+                                '[]'::JSON
                             )
                         )
                     )
                 )
-            FROM public.tweets t
-            LEFT JOIN public.world_areas wa
-                ON ST_Contains(wa.geom, t.geom)
-            WHERE {where_clause};
-        """
+            )
+        FROM public.tweets t
+        LEFT JOIN public.world_areas wa
+            ON ST_Contains(wa.geom, t.geom)
+        WHERE {where_clause};
+    """
 
-        cur.execute(query, params)
 
-        # Gestion du cas sans résultats (GeoJSON vide valide)
-        geojson_data = cur.fetchone()[0] or {
-            "type": "FeatureCollection",
-            "features": []
-        }
+    cur.execute(query, params)
 
-        cur.close()
+    # Gestion du cas sans résultats (GeoJSON vide valide)
+    geojson_data = cur.fetchone()[0] or {
+        "type": "FeatureCollection",
+        "features": []
+    }
 
-        return Response(content=json.dumps(geojson_data), media_type="application/json")
-        
-    finally:
-        if conn:
-            release_db_connection(conn)
+    cur.close()
+    conn.close()
+
+    return Response(content=json.dumps(geojson_data), media_type="application/json")
+
 
 
 @app.get("/api/twitter_conflicts/area_stats")
@@ -424,68 +308,63 @@ def get_area_stats(
     Returns:
         dict: Données agrégées par intervalle de temps avec comptages
     """
-    conn = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        
-        # Déterminer l'intervalle d'agrégation selon la période
-        if hours <= 24:
-            # 1 jour : agrégation toutes les 2 heures
-            interval_hours = 2
-            interval_sql = "2 hours"
-        elif hours <= 168:  # 7 jours
-            # 7 jours : agrégation toutes les 12 heures
-            interval_hours = 12
-            interval_sql = "12 hours"
-        else:  # 30 jours
-            # 30 jours : agrégation par jour
-            interval_hours = 24
-            interval_sql = "1 day"
-        
-        query = """
-            WITH time_buckets AS (
-                SELECT 
-                    DATE_TRUNC('hour', date_published) + 
-                    INTERVAL '%s' * FLOOR(EXTRACT(EPOCH FROM (date_published - DATE_TRUNC('hour', date_published))) / (EXTRACT(EPOCH FROM INTERVAL '%s'))) AS time_bucket,
-                    typology
-                FROM public.tweets t
-                LEFT JOIN public.world_areas wa ON ST_Contains(wa.geom, t.geom)
-                WHERE 
-                    wa."NAME_FR" = %%s
-                    AND date_published >= NOW() - INTERVAL '%%s hours'
-            )
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Déterminer l'intervalle d'agrégation selon la période
+    if hours <= 24:
+        # 1 jour : agrégation toutes les 2 heures
+        interval_hours = 2
+        interval_sql = "2 hours"
+    elif hours <= 168:  # 7 jours
+        # 7 jours : agrégation toutes les 12 heures
+        interval_hours = 12
+        interval_sql = "12 hours"
+    else:  # 30 jours
+        # 30 jours : agrégation par jour
+        interval_hours = 24
+        interval_sql = "1 day"
+    
+    query = """
+        WITH time_buckets AS (
             SELECT 
-                time_bucket,
-                COUNT(*) as total
-            FROM time_buckets
-            GROUP BY time_bucket
-            ORDER BY time_bucket ASC;
-        """ % (interval_sql, interval_sql)
-        
-        cur.execute(query, (area_name, hours))
-        
-        results = cur.fetchall()
-        
-        data = []
-        for row in results:
-            data.append({
-                "timestamp": row[0].isoformat() if row[0] else None,
-                "total": row[1],
-            })
-        
-        cur.close()
-        
-        return {
-            "area": area_name,
-            "period_hours": hours,
-            "interval_hours": interval_hours,
-            "data": data
-        }
-        
-    finally:
-        if conn:
-            release_db_connection(conn)
+                DATE_TRUNC('hour', date_published) + 
+                INTERVAL '%s' * FLOOR(EXTRACT(EPOCH FROM (date_published - DATE_TRUNC('hour', date_published))) / (EXTRACT(EPOCH FROM INTERVAL '%s'))) AS time_bucket,
+                typology
+            FROM public.tweets t
+            LEFT JOIN public.world_areas wa ON ST_Contains(wa.geom, t.geom)
+            WHERE 
+                wa."NAME_FR" = %%s
+                AND date_published >= NOW() - INTERVAL '%%s hours'
+        )
+        SELECT 
+            time_bucket,
+            COUNT(*) as total
+        FROM time_buckets
+        GROUP BY time_bucket
+        ORDER BY time_bucket ASC;
+    """ % (interval_sql, interval_sql)
+    
+    cur.execute(query, (area_name, hours))
+    
+    results = cur.fetchall()
+    
+    data = []
+    for row in results:
+        data.append({
+            "timestamp": row[0].isoformat() if row[0] else None,
+            "total": row[1],
+        })
+    
+    cur.close()
+    conn.close()
+    
+    return {
+        "area": area_name,
+        "period_hours": hours,
+        "interval_hours": interval_hours,
+        "data": data
+    }
 
 
 @app.get("/api/twitter_conflicts/area_info")
@@ -503,36 +382,32 @@ def get_area_info(
     Returns:
         dict: Statistiques générales du pays
     """
-    conn = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        
-        query = """
-            SELECT 
-                COUNT(*) as total_events,
-                COUNT(DISTINCT author) as unique_authors,
-                MAX(date_published) as last_event_date
-            FROM public.tweets t
-            LEFT JOIN public.world_areas wa ON ST_Contains(wa.geom, t.geom)
-            WHERE 
-                wa."NAME_FR" = %s
-                AND date_published >= NOW() - INTERVAL '%s hours';
-        """
-        
-        cur.execute(query, (area_name, hours))
-        
-        result = cur.fetchone()
-        cur.close()
-        
-        return {
-            "area": area_name,
-            "period_hours": hours,
-            "total_events":   result[0] if result else 0,
-            "unique_authors": result[1] if result else 0,
-            "last_event_date": result[2].isoformat() if result and result[2] else None
-        }
-        
-    finally:
-        if conn:
-            release_db_connection(conn)
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    query = """
+        SELECT 
+            COUNT(*) as total_events,
+            COUNT(DISTINCT author) as unique_authors,
+            MAX(date_published) as last_event_date
+        FROM public.tweets t
+        LEFT JOIN public.world_areas wa ON ST_Contains(wa.geom, t.geom)
+        WHERE 
+            wa."NAME_FR" = %s
+            AND date_published >= NOW() - INTERVAL '%s hours';
+    """
+    
+    cur.execute(query, (area_name, hours))
+    
+    result = cur.fetchone()
+    
+    cur.close()
+    conn.close()
+    
+    return {
+        "area": area_name,
+        "period_hours": hours,
+        "total_events":   result[0] if result else 0,
+        "unique_authors": result[1] if result else 0,
+        "last_event_date": result[2].isoformat() if result and result[2] else None
+    }
