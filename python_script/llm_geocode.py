@@ -1,15 +1,9 @@
 """
-Module d'extraction d'événements géopolitiques via LLM
-======================================================
+Module d'extraction d'événements géopolitiques via LLM (version simplifiée)
+===========================================================================
 
-Ce module utilise un modèle de langage local (Ollama) pour analyser des tweets OSINT
-et extraire automatiquement :
-- La nature de l'événement (militaire ou autre)
-- Sa localisation géographique (coordonnées GPS)
-- Son importance stratégique (échelle 1-5)
-- Le niveau de confiance de la géolocalisation
-
-Le modèle utilisé : Qwen3-14B (version abliterated) pour une analyse factuelle sans censure.
+Prompt allégé pour éviter les hallucinations géographiques.
+Focus sur l'extraction d'événements concrets uniquement.
 """
 
 import ollama
@@ -23,154 +17,249 @@ def extract_events_and_geoloc(tweet_text):
         tweet_text (str): Le texte du tweet à analyser
         
     Returns:
-        dict: Dictionnaire JSON contenant la liste des événements extraits avec leurs métadonnées,
-              ou None en cas d'erreur de parsing
-              
-    Format de retour:
-        {
-          "events": [
-            {
-              "event_summary": str,
-              "typologie": "MIL" | "OTHER",
-              "strategic_importance": 1-5,
-              "main_location": str | null,
-              "location_type": "explicit" | "inferred" | "unknown",
-              "latitude": float | null,
-              "longitude": float | null,
-              "confidence": "high" | "medium" | "low"
-            }
-          ]
-        }
+        dict: Dictionnaire JSON contenant la liste des événements extraits
     """
     
-    # Construction du prompt structuré pour guider le LLM dans l'extraction
-    prompt = f"""
-    Tu es un analyste OSINT spécialisé en extraction d'événements géopolitiques et militaires à partir de tweets.
+    prompt = f"""Tu es un analyste OSINT. Extrais UNIQUEMENT les événements concrets et physiques de ce tweet.
 
-    RÈGLE D’OR (priorité absolue) :
-    Dès qu’il y a le mot "waters", "maritime waters", "at sea", "in the sea", "naval", "warship", "navy", "fishing boat" + saisie/interception, "collision", "refueling", ou toute action clairement maritime → le point DOIT être placé **en mer**, même si un pays, une île ou un continent est mentionné juste avant ou après. Ne place jamais le point sur la terre ferme dans ce cas.
+    RÈGLES D'EXTRACTION :
 
-    Objectif :
-    Extraire uniquement des informations factuelles, classifier l'événement et relier l'action à un lieu réel. Évaluer son importance stratégique.
+    1. QUOI EXTRAIRE :
+      ✓ Attaques (drone, missile, artillerie)
+      ✓ Saisies/arraisonnements de navires
+      ✓ Mouvements militaires : déploiements navals/aériens, patrouilles, repositionnements tactiques
+      ✓ Incidents (collisions, incendies, explosions)
+      ✓ Violences (tirs, affrontements)
+      ✓ Déclarations politiques (annonces officielles, budgets défense, lois, intentions stratégiques)
+      
+      ✗ NE PAS extraire : tweets purement informatifs sans événement
 
-    Catégories de Typologie (CHOISIR UNIQUEMENT PARMI) :
-    - MIL : Seulement si le texte mentionne explicitement un bombardement, une frappe de missile/drone, ou un combat direct avéré (avec preuve ou source claire).
-    - OTHER : Tout autre événement.
+    2. GÉOLOCALISATION (règles strictes par type) :
 
-    Règles STRICTES de Géolocalisation (appliquer dans cet ordre de priorité) :
+      A) ÉVÉNEMENTS MARITIMES
+          Si le tweet contient : "sea", "ocean", "waters", "strait" + un nom de mer/océan
+          → Place le point EN MER selon cette table :
+          
+          Caribbean Sea / Caribbean           → 15.0, -75.0
+          South China Sea                     → 10.0, 115.0
+          East China Sea                      → 30.0, 125.0
+          Black Sea                           → 43.0, 34.0
+          Red Sea                             → 18.0, 38.0
+          Mediterranean Sea / Mediterranean   → 35.0, 18.0
+          Persian Gulf / Arabian Gulf         → 26.0, 52.0
+          Gulf of Mexico                      → 25.0, -90.0
+          Baltic Sea                          → 58.0, 20.0
+          Pacific Ocean                       → 0.0, -140.0
+          Atlantic Ocean                      → 25.0, -40.0
+          Indian Ocean                        → -10.0, 75.0
+          Japanese waters / Japanese maritime → 34.5, 138.5
+          
+          → location_type: "inferred", confidence: "medium"
 
-    1. Détection maritime (priorité absolue)
-      Si le texte contient un des mots-clés suivants ou une situation navale claire :
-      - maritime waters, territorial waters, in waters, at sea, naval, warship, navy, fishing boat seized/intercepted, collision, refueling, exercice naval, etc.
-      → Toujours traiter comme localisation maritime.
-      → Placement obligatoire : point **uniquement dans l’eau** (jamais sur terre).
-      → Choisis un point représentatif dans la zone aquatique concernée, le plus proche possible de la région / pays nommé.
+      B) NAVIRES EN MOUVEMENT (arriving/departing/coming into/leaving)
+          → Place le point dans les EAUX ADJACENTES au port mentionné :
+          
+          Little Creek, Virginia         → 36.90, -76.00
+          Sydney, Australia              → -33.85, 151.25
+          Norfolk, USA                   → 36.90, -76.05
+          Portsmouth, UK                 → 50.80, -1.10
+          
+          → location_type: "inferred", confidence: "medium"
 
-      Exemples de coordonnées à utiliser / s’inspirer :
-      - Japanese / East China Sea maritime waters     → 34.5, 138.5
-      - waters near South America                     → -15.0, -38.0 (Atlantique large du Brésil)
-      - South China Sea                               → 10.0, 115.0
-      - Black Sea                                     → 43.0, 34.0
-      - Red Sea                                       → 18.0, 38.0
-      - Philippine Sea                                → 20.0, 135.0
-      - Mediterranean Sea (général)                   → 35.0, 18.0
-      - Persian Gulf                                  → 26.0, 52.0
-      - near Taiwan Strait                            → 24.0, 120.0
+      C) LIEUX TERRESTRES (villes, bases, régions)
+          → Utilise tes connaissances géographiques pour la ville/base/région :
+          
+          Volna, Krasnodar, Russia       → 45.35, 37.15
+          Odesa, Ukraine                 → 46.48, 30.73
+          RAF Mildenhall, UK             → 52.36, 0.49
+          RAF Lakenheath, UK             → 52.41, 0.56
+          Muwaffaq Salti AB, Jordan      → 31.97, 36.26
+          Trapani, Italy                 → 38.02, 12.50
+          Eastern Poland (zone)          → 51.0, 23.0
+          Tehran, Iran                   → 35.70, 51.42
+          
+          → location_type: "explicit", confidence: "high"
 
-    2. Localisation terrestre explicite
-      Seulement si AUCUN mot maritime n’est présent ET qu’un pays/ville/base est nommé clairement.
-      → Point à l’intérieur des frontières du pays / de la ville.
+      D) COORDONNÉES FOURNIES DANS LE TWEET
+          Si le tweet contient déjà des coordonnées GPS (ex: "35.733017, 51.494024")
+          → Utilise-les directement, confidence: "high"
 
-    3. Cas "near [pays/continent]" sans indication maritime
-      → Point terrestre central du pays/continent.
+    3. TYPOLOGIE :
+      - MIL : Attaque, bombardement, frappe, tir, combat, explosion militaire
+      - POL : Déclaration politique, annonce officielle, budget défense, loi militaire, intention stratégique
+      - MOVE : Déploiement naval/aérien, patrouille, repositionnement tactique, arrivée/départ de navire militaire, vol de surveillance
+      - OTHER : Tout le reste (saisie civile, incident non-militaire, accident)
 
-    - location_type : "inferred" dès qu’on utilise une zone maritime large ou une approximation.
-    - confidence   : "medium" pour toute localisation maritime non précisément chiffrée (ex: pas de coordonnées exactes dans le tweet).
+    4. GÉOLOCALISATION DES ÉVÉNEMENTS POLITIQUES (POL) :
+      → Géolocalise à la CAPITALE du pays concerné par la déclaration
+      → Si plusieurs pays mentionnés, choisis le pays dont émane la déclaration
+      
+      Capitales principales :
+      Taiwan (Taipei)           → 25.03, 121.56
+      Ukraine (Kyiv)            → 50.45, 30.52
+      Russia (Moscow)           → 55.75, 37.62
+      USA (Washington DC)       → 38.90, -77.04
+      China (Beijing)           → 39.90, 116.40
+      Iran (Tehran)             → 35.70, 51.42
+      Israel (Jerusalem)        → 31.78, 35.22
+      UK (London)               → 51.51, -0.13
+      France (Paris)            → 48.86, 2.35
+      Germany (Berlin)          → 52.52, 13.40
+      Japan (Tokyo)             → 35.68, 139.65
+      South Korea (Seoul)       → 37.57, 126.98
+      North Korea (Pyongyang)   → 39.03, 125.75
+      
+      → location_type: "explicit", confidence: "high"
 
-    Critères d’Importance Stratégique (Note de 1 à 5) :
-    1 : Événement local/mineur (escarmouche isolée, déclaration de routine).
-    2 : Événement tactique (mouvement de troupes local, frappe sur cible secondaire).
-    3 : Événement opérationnel (perte d'infrastructure clé, changement de ligne de front, incident naval significatif).
-    4 : Événement stratégique (changement de politique majeure, livraison d’armes lourdes, escalade régionale).
-    5 : Événement critique mondial (déclaration de guerre, frappe nucléaire, chute d’un gouvernement).
+    5. IMPORTANCE (1-5) :
+      1: Incident mineur local, déclaration de routine
+      2: Événement tactique (mouvement routine, petite frappe, annonce mineure)
+      3: Événement opérationnel (attaque infrastructure, déploiement significatif, budget important)
+      4: Escalade stratégique (attaque massive, changement doctrine, annonce majeure)
+      5: Crise mondiale (guerre déclarée, frappe nucléaire, rupture diplomatique majeure)
 
-    Exemples de sortie attendue :
-
-    Tweet : "Japanese navy has seized a Chinese fishing boat which refused to stop for inspection in Japanese maritime waters-WSJ"
-    Sortie :
-    {{
-      "events": [{{
-        "event_summary": "La marine japonaise a saisi un bateau de pêche chinois qui refusait de s'arrêter dans les eaux maritimes japonaises",
-        "typologie": "OTHER",
-        "strategic_importance": 3,
-        "main_location": "Japanese maritime waters",
-        "location_type": "inferred",
-        "latitude": 34.5,
-        "longitude": 138.5,
-        "confidence": "medium"
-      }}]
-    }}
-
-    Tweet : "A U.S. warship and a Navy supply vessel collided during refueling in waters near South America-Reuters"
-    Sortie :
-    {{
-      "events": [{{
-        "event_summary": "Collision entre un navire de guerre américain et un navire ravitailleur de la Navy lors d'un ravitaillement en mer près de l'Amérique du Sud",
-        "typologie": "OTHER",
-        "strategic_importance": 3,
-        "main_location": "waters near South America",
-        "location_type": "inferred",
-        "latitude": -15.0,
-        "longitude": -38.0,
-        "confidence": "medium"
-      }}]
-    }}
-
-    Format JSON attendu (strict) :
+    FORMAT JSON (strict) :
     {{
       "events": [
         {{
-          "event_summary": "description factuelle et concise",
-          "typologie": "MIL | OTHER",
-          "strategic_importance": 1 | 2 | 3 | 4 | 5,
-          "main_location": "nom du lieu ou null",
-          "location_type": "explicit | inferred | unknown",
-          "latitude": float ou null,
-          "longitude": float ou null,
-          "confidence": "high | medium | low"
+          "event_summary": "description factuelle courte",
+          "typologie": "MIL ou POL ou MOVE ou OTHER",
+          "strategic_importance": 1-5,
+          "main_location": "nom du lieu",
+          "location_type": "explicit ou inferred",
+          "latitude": nombre décimal,
+          "longitude": nombre décimal,
+          "confidence": "high ou medium ou low"
         }}
       ]
     }}
 
-    IMPORTANT : Si aucune information fiable n'est disponible ou si le tweet n'est pas informatif, retourne : {{"events":[]}}
+    Si aucun événement → retourne {{"events":[]}}
 
-    Tweet à analyser :
+    EXEMPLES :
+
+    Tweet: "US special forces boarded and seized the Veronica III oil tanker in the Caribbean Sea."
+    {{
+      "events": [{{
+        "event_summary": "Saisie du pétrolier Veronica III par forces spéciales US en Mer des Caraïbes",
+        "typologie": "OTHER",
+        "strategic_importance": 3,
+        "main_location": "Caribbean Sea",
+        "location_type": "inferred",
+        "latitude": 15.0,
+        "longitude": -75.0,
+        "confidence": "medium"
+      }}]
+    }}
+
+    Tweet: "Taiwan will strengthen defence efforts, President Lai said. He is trying to pass a 40 billion defence bill."
+    {{
+      "events": [{{
+        "event_summary": "Le président Lai annonce un renforcement de la défense avec un budget de 40 milliards en discussion",
+        "typologie": "POL",
+        "strategic_importance": 3,
+        "main_location": "Taipei, Taiwan",
+        "location_type": "explicit",
+        "latitude": 25.03,
+        "longitude": 121.56,
+        "confidence": "high"
+      }}]
+    }}
+
+    Tweet: "At least five KC-135R/T Stratotanker departing from RAF Mildenhall heading south, supporting six F-35A from Vermont ANG flying to Jordan."
+    {{
+      "events": [{{
+        "event_summary": "Déploiement de 5 KC-135 et 6 F-35A depuis RAF Mildenhall vers la Jordanie",
+        "typologie": "MOVE",
+        "strategic_importance": 3,
+        "main_location": "RAF Mildenhall to Jordan deployment",
+        "location_type": "explicit",
+        "latitude": 52.36,
+        "longitude": 0.49,
+        "confidence": "high"
+      }}]
+    }}
+
+    Tweet: "Future USNS Point Loma (EPF-15) expeditionary fast transport coming into Little Creek, Virginia - February 14, 2026"
+    {{
+      "events": [{{
+        "event_summary": "Navire de transport expéditionnaire USNS Point Loma arrive à Little Creek",
+        "typologie": "MOVE",
+        "strategic_importance": 2,
+        "main_location": "Little Creek waters, Virginia",
+        "location_type": "inferred",
+        "latitude": 36.90,
+        "longitude": -76.00,
+        "confidence": "medium"
+      }}]
+    }}
+
+    Tweet: "NATO E-3A Sentry AEW&C Aircraft and Airbus A330 MRTT supporting F-35A are airborne over Eastern Poland."
+    {{
+      "events": [{{
+        "event_summary": "Patrouille NATO E-3A et A330 MRTT en soutien de F-35A au-dessus de la Pologne orientale",
+        "typologie": "MOVE",
+        "strategic_importance": 3,
+        "main_location": "Eastern Poland",
+        "location_type": "inferred",
+        "latitude": 51.0,
+        "longitude": 23.0,
+        "confidence": "medium"
+      }}]
+    }}
+
+    Tweet: "Emergency services in Krasnodar said firefighters are battling a blaze in Volna village after a drone attack."
+    {{
+      "events": [{{
+        "event_summary": "Attaque de drone sur le village de Volna, incendie en cours",
+        "typologie": "MIL",
+        "strategic_importance": 3,
+        "main_location": "Volna, Krasnodar region, Russia",
+        "location_type": "explicit",
+        "latitude": 45.35,
+        "longitude": 37.17,
+        "confidence": "high"
+      }}]
+    }}
+
+    Tweet: "CS Decisive cable-laying vessel coming into Sydney, Australia - February 13, 2026"
+    {{
+      "events": [{{
+        "event_summary": "Navire poseur de câbles CS Decisive arrive à Sydney",
+        "typologie": "OTHER",
+        "strategic_importance": 2,
+        "main_location": "Sydney waters, Australia",
+        "location_type": "inferred",
+        "latitude": -33.85,
+        "longitude": 151.25,
+        "confidence": "medium"
+      }}]
+    }}
+
+    TWEET À ANALYSER :
     {tweet_text}
     """
 
     try:
-        # Appel au modèle LLM local via Ollama
         response = ollama.chat(
-            model='richardyoung/qwen3-14b-abliterated:q5_k_m',  # Modèle 14B quantifié (q5_k_m pour équilibre qualité/vitesse)
+            model='richardyoung/qwen3-14b-abliterated:q5_k_m',
             messages=[{'role': 'user', 'content': prompt}],
-            format='json',  # Force la sortie en JSON valide
+            format='json',
             options={
-                'temperature': 0.0,        # Température nulle pour des résultats déterministes et factuels
-                'num_ctx': 4096,           # Fenêtre de contexte (tokens max)
-                'top_p': 0.9,              # Nucleus sampling pour diversité contrôlée
-                'repeat_penalty': 1.1,     # Pénalité légère contre les répétitions
+                'temperature': 0.0,
+                'num_ctx': 4096,
+                'top_p': 0.9,
+                'repeat_penalty': 1.1,
             }
         )
         
-        # Extraction et parsing de la réponse JSON
         raw_content = response['message']['content'].strip()
         return json.loads(raw_content)
 
     except json.JSONDecodeError as e:
-        # Gestion des erreurs de parsing JSON (réponse mal formée du LLM)
         print("JSON parse error:", e)
         return None
     except Exception as e:
-        # Gestion des autres erreurs (connexion Ollama, timeout, etc.)
         print("Ollama error:", e)
         return None
+

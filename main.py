@@ -18,7 +18,7 @@ Configuration :
 - Variables d'environnement : Chargées depuis fichier .env
 """
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Response, Query
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import psycopg2
@@ -155,30 +155,41 @@ def get_world_areas():
 
 
 @app.get("/api/twitter_conflicts/authors")
-def get_authors(hours: int = 720):
+def get_authors(
+    start_date: datetime = Query(..., description="Date de début (ISO 8601, ex: 2026-02-14T00:00:00Z)"),
+    end_date: datetime = Query(..., description="Date de fin (ISO 8601, ex: 2026-02-15T23:59:59Z)")
+):
     """
     Retourne la liste des auteurs distincts ayant publié des tweets sur une période donnée.
     
     Args:
-        hours (int): Période en heures (par défaut 720h = 30 jours)
+        start_date (datetime): Date de début (ISO 8601 avec timezone) - OBLIGATOIRE
+        end_date (datetime): Date de fin (ISO 8601 avec timezone) - OBLIGATOIRE
         
     Returns:
         dict: {"authors": ["@author1", "@author2", ...]}
         
     Utilisé pour alimenter les filtres de recherche dans l'interface utilisateur.
+    
+    Exemples d'utilisation :
+        # Auteurs des 30 derniers jours
+        /api/twitter_conflicts/authors?start_date=2026-01-15T00:00:00Z&end_date=2026-02-15T23:59:59Z
+        
+        # Auteurs d'aujourd'hui
+        /api/twitter_conflicts/authors?start_date=2026-02-15T00:00:00Z&end_date=2026-02-15T23:59:59Z
     """
     conn = get_db_connection()
     cur = conn.cursor()
 
-    # Requête avec intervalle dynamique basé sur NOW()
+    # Requête avec plage temporelle explicite
     cur.execute(
         """
         SELECT DISTINCT author
         FROM public.tweets
-        WHERE date_published >= NOW() - INTERVAL '%s hours'
+        WHERE date_published >= %s AND date_published <= %s
         ORDER BY author;
         """,
-        (hours,)
+        (start_date, end_date)
     )
 
     authors = [row[0] for row in cur.fetchall()]
@@ -191,12 +202,13 @@ def get_authors(hours: int = 720):
 
 @app.get("/api/twitter_conflicts/tweets.geojson")
 def get_tweets(
-    hours: int = 24,
+    start_date: datetime = Query(..., description="Date de début (ISO 8601, ex: 2026-02-14T00:00:00Z)"),
+    end_date: datetime = Query(..., description="Date de fin (ISO 8601, ex: 2026-02-15T23:59:59Z)"),
     q: Optional[str] = None,
     authors: Optional[str] = None,
-    area: Optional[str] = None,           # ← nouveau paramètre
-    format: str = "geojson",                  # ← "geojson" (défaut) ou "list"
-    sort: str = "date_desc",                  # date_desc, importance_desc, etc.
+    area: Optional[str] = None,         
+    format: str = "geojson",                  
+    sort: str = "date_desc",                
     page: int = 1,
     size: int = 50
 ):
@@ -204,22 +216,31 @@ def get_tweets(
     Retourne les tweets géolocalisés en format GeoJSON avec filtrage avancé.
     
     Args:
-        hours (int): Période temporelle en heures (par défaut 24h)
+        start_date (datetime): Date de début (ISO 8601 avec timezone) - OBLIGATOIRE
+        end_date (datetime): Date de fin (ISO 8601 avec timezone) - OBLIGATOIRE
         q (str, optional): Recherche textuelle (ILIKE sur body et author)
         authors (str, optional): Liste d'auteurs séparés par virgules (ex: "@user1,@user2")
+        area (str, optional): Nom de la zone géographique (world_areas.NAME_FR)
         
     Returns:
         Response: GeoJSON FeatureCollection avec les tweets et leurs métadonnées
         
-    Exemple d'utilisation :
-        /api/twitter_conflicts/tweets.geojson?hours=48&q=missile&authors=@GeoConfirmed
+    Exemples d'utilisation :
+        # Plage temporelle (7 jours)
+        /api/twitter_conflicts/tweets.geojson?start_date=2026-02-08T00:00:00Z&end_date=2026-02-15T23:59:59Z
+        
+        # Avec filtres combinés
+        /api/twitter_conflicts/tweets.geojson?start_date=2026-02-14T00:00:00Z&end_date=2026-02-15T23:59:59Z&q=missile&authors=@GeoConfirmed
+        
+        # Filtrer par zone
+        /api/twitter_conflicts/tweets.geojson?start_date=2026-02-01T00:00:00Z&end_date=2026-02-15T23:59:59Z&area=Ukraine
     """
     conn = get_db_connection()
     cur = conn.cursor()
 
     # Construction dynamique de la clause WHERE
-    conditions = ["date_published >= NOW() - INTERVAL '%s hours'"]
-    params = [hours]
+    conditions = ["date_published >= %s AND date_published <= %s"]
+    params = [start_date, end_date]
 
     # Filtre de recherche textuelle (insensible à la casse)
     if q:
@@ -234,6 +255,7 @@ def get_tweets(
             conditions.append(f"author IN ({placeholders})")
             params.extend(author_list)
 
+    # Filtre par zone géographique
     if area:
         conditions.append("""wa."NAME_FR" = %s""")
         params.append(area)
@@ -258,7 +280,7 @@ def get_tweets(
                             'accuracy',         t.accuracy,
                             'importance',       t.importance,
                             'typology',         t.typology,
-                            'area_name',     wa."NAME_FR",
+                            'area_name',        wa."NAME_FR",
                             'images', COALESCE(
                                 (
                                     SELECT JSON_AGG(ti.image_url ORDER BY ti.image_url)
@@ -277,7 +299,6 @@ def get_tweets(
         WHERE {where_clause};
     """
 
-
     cur.execute(query, params)
 
     # Gestion du cas sans résultats (GeoJSON vide valide)
@@ -290,124 +311,3 @@ def get_tweets(
     conn.close()
 
     return Response(content=json.dumps(geojson_data), media_type="application/json")
-
-
-
-@app.get("/api/twitter_conflicts/area_stats")
-def get_area_stats(
-    area_name: str,
-    hours: int = 24
-):
-    """
-    Retourne les statistiques d'événements par pays agrégées par période.
-    
-    Args:
-        area_name (str): Nom du pays (ex: "Ukraine", "Russia")
-        hours (int): Période en heures (24, 168=7j, 720=30j)
-        
-    Returns:
-        dict: Données agrégées par intervalle de temps avec comptages
-    """
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    # Déterminer l'intervalle d'agrégation selon la période
-    if hours <= 24:
-        # 1 jour : agrégation toutes les 2 heures
-        interval_hours = 2
-        interval_sql = "2 hours"
-    elif hours <= 168:  # 7 jours
-        # 7 jours : agrégation toutes les 12 heures
-        interval_hours = 12
-        interval_sql = "12 hours"
-    else:  # 30 jours
-        # 30 jours : agrégation par jour
-        interval_hours = 24
-        interval_sql = "1 day"
-    
-    query = """
-        WITH time_buckets AS (
-            SELECT 
-                DATE_TRUNC('hour', date_published) + 
-                INTERVAL '%s' * FLOOR(EXTRACT(EPOCH FROM (date_published - DATE_TRUNC('hour', date_published))) / (EXTRACT(EPOCH FROM INTERVAL '%s'))) AS time_bucket,
-                typology
-            FROM public.tweets t
-            LEFT JOIN public.world_areas wa ON ST_Contains(wa.geom, t.geom)
-            WHERE 
-                wa."NAME_FR" = %%s
-                AND date_published >= NOW() - INTERVAL '%%s hours'
-        )
-        SELECT 
-            time_bucket,
-            COUNT(*) as total
-        FROM time_buckets
-        GROUP BY time_bucket
-        ORDER BY time_bucket ASC;
-    """ % (interval_sql, interval_sql)
-    
-    cur.execute(query, (area_name, hours))
-    
-    results = cur.fetchall()
-    
-    data = []
-    for row in results:
-        data.append({
-            "timestamp": row[0].isoformat() if row[0] else None,
-            "total": row[1],
-        })
-    
-    cur.close()
-    conn.close()
-    
-    return {
-        "area": area_name,
-        "period_hours": hours,
-        "interval_hours": interval_hours,
-        "data": data
-    }
-
-
-@app.get("/api/twitter_conflicts/area_info")
-def get_area_info(
-    area_name: str,
-    hours: int = 24
-):
-    """
-    Retourne les informations générales d'un pays pour une période donnée.
-    
-    Args:
-        area_name (str): Nom du pays
-        hours (int): Période en heures
-        
-    Returns:
-        dict: Statistiques générales du pays
-    """
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    query = """
-        SELECT 
-            COUNT(*) as total_events,
-            COUNT(DISTINCT author) as unique_authors,
-            MAX(date_published) as last_event_date
-        FROM public.tweets t
-        LEFT JOIN public.world_areas wa ON ST_Contains(wa.geom, t.geom)
-        WHERE 
-            wa."NAME_FR" = %s
-            AND date_published >= NOW() - INTERVAL '%s hours';
-    """
-    
-    cur.execute(query, (area_name, hours))
-    
-    result = cur.fetchone()
-    
-    cur.close()
-    conn.close()
-    
-    return {
-        "area": area_name,
-        "period_hours": hours,
-        "total_events":   result[0] if result else 0,
-        "unique_authors": result[1] if result else 0,
-        "last_event_date": result[2].isoformat() if result and result[2] else None
-    }
