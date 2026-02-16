@@ -336,7 +336,7 @@ def get_tweets(
     country = result[0]
     tension_score = result[1]
     niveau_tension = result[2]
-    evenements_json = json.loads(result[3])
+    evenements_json = result[3]
 
     cur.close()
     conn.close()
