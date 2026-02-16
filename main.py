@@ -331,19 +331,21 @@ def get_tweets(
         """,
         (area, )
     )
+    try: 
+        result = cur.fetchone()
+        country = result[0]
+        tension_score = result[1]
+        niveau_tension = result[2]
+        evenements_json = result[3]
 
-    result = cur.fetchone()
-    country = result[0]
-    tension_score = result[1]
-    niveau_tension = result[2]
-    evenements_json = result[3]
+        cur.close()
+        conn.close()
 
-    cur.close()
-    conn.close()
-
-    return {
-        "country": country,
-        "tension_score": float(tension_score),
-        "niveau_tension": niveau_tension,
-        "evenements": evenements_json
-    }
+        return {
+            "country": country,
+            "tension_score": float(tension_score),
+            "niveau_tension": niveau_tension,
+            "evenements": evenements_json
+        }
+    except:
+        return 0
