@@ -329,7 +329,7 @@ def get_tweets(
         WHERE
             COUNTRY = %s
         """,
-        (area)
+        (area, )
     )
 
     result = cur.fetchone()
