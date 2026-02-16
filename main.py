@@ -312,7 +312,7 @@ def get_tweets(
 
     return Response(content=json.dumps(geojson_data), media_type="application/json")
 
-@app.get("/api/twitter_conflicts/tension_index.geojson")
+@app.get("/api/twitter_conflicts/tension_index")
 def get_tweets(
     area: Optional[str] = None,         
 ):
