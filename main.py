@@ -327,7 +327,7 @@ def get_tweets(
         FROM
             TENSION_INDEX_MV
         WHERE
-            COUNTRY = '%s'
+            COUNTRY = %s
         """,
         (area)
     )
