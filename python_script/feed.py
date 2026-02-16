@@ -58,7 +58,7 @@ cur.execute("SELECT tweet_id from tweets")
 tweet_in_db = [i[0] for i in cur.fetchall()]
 
 # Liste des sources OSINT à scraper
-sources = ["@GeoConfirmed", "@sentdefender","@OSINTWarfare","@Osinttechnical","@Conflict_Radar","@WarMonitor3","@NOELreports"]
+sources = ["@GeoConfirmed", "@sentdefender","@OSINTWarfare","@Osinttechnical","@Conflict_Radar","@WarMonitor3","@NOELreports","@ACLEDINFO"]
 
 # Mapping de la confiance LLM vers les valeurs françaises de la BDD
 accuracy_table = {
@@ -114,9 +114,9 @@ for source in sources:
         lat = event.get("latitude")
         long = event.get("longitude")
         location = event.get("main_location")
-        strategic_importance = event.get("strategic_importance")
+        strategic_importance = int(event.get("strategic_importance"))
         typology = event.get("typologie")
-
+        event_summary = event.get("event_summary")
         # Construction de la géométrie PostGIS (format WKT)
         if lat is not None and long is not None:
             geom_wkt = f"POINT ({long} {lat})"
@@ -128,13 +128,13 @@ for source in sources:
         
         # Insertion du tweet avec toutes ses métadonnées géospatiales
         cur.execute("""
-        INSERT INTO public.TWEETS (tweet_id, date_published, url, author, body, accuracy, importance, typology, GEOM) 
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 
+        INSERT INTO public.TWEETS (tweet_id, date_published, url, author, body, accuracy, importance, typology, summary, GEOM) 
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s,
                 CASE WHEN %s IS NOT NULL 
                 THEN ST_GeomFromText(%s, 4326) 
                 ELSE NULL END)
             """, 
-        (item["id"], item["date"], item["link"], item["author"], item["title"], tweet_accuracy, strategic_importance, typology,  geom_wkt, geom_wkt))
+        (item["id"], item["date"], item["link"], item["author"], item["title"], tweet_accuracy, strategic_importance, typology, event_summary, geom_wkt, geom_wkt))
         conn.commit()
 
         for img in item["images"]:
@@ -144,6 +144,9 @@ for source in sources:
             """, (item["id"], img))
             conn.commit()
             
+cur.execute("REFRESH MATERIALIZED VIEW tension_index_mv;")
+conn.commit()
+
 # Fermeture propre des connexions
 cur.close()
 conn.close()

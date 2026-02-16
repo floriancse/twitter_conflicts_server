@@ -311,3 +311,34 @@ def get_tweets(
     conn.close()
 
     return Response(content=json.dumps(geojson_data), media_type="application/json")
+
+@app.get("/api/twitter_conflicts/tension_index.geojson")
+def get_tweets(
+    area: Optional[str] = None,         
+):
+    conn = get_db_connection()
+    cur = conn.cursor()
+
+    # Requête avec plage temporelle explicite
+    cur.execute(
+        """
+        SELECT
+            *
+        FROM
+            TENSION_INDEX_MV
+        WHERE
+            COUNTRY = '%s'
+        """,
+        (area)
+    )
+
+    result = cur.fetchone()
+    country = result[0]
+    tension_score = result[1]
+    niveau_tension = result[2]
+    evenements_json = json.loads(result[3])
+
+    cur.close()
+    conn.close()
+
+    return {"tension_score": tension_score}

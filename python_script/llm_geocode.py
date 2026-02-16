@@ -47,6 +47,7 @@ def extract_events_and_geoloc(tweet_text):
           Red Sea                             → 18.0, 38.0
           Mediterranean Sea / Mediterranean   → 35.0, 18.0
           Persian Gulf / Arabian Gulf         → 26.0, 52.0
+          Strait of Hormuz / Hormuz           → 26.6, 56.5    
           Gulf of Mexico                      → 25.0, -90.0
           Baltic Sea                          → 58.0, 20.0
           Pacific Ocean                       → 0.0, -140.0
@@ -111,28 +112,40 @@ def extract_events_and_geoloc(tweet_text):
       
       → location_type: "explicit", confidence: "high"
 
-    5. IMPORTANCE (1-5) :
-      1: Incident mineur local, déclaration de routine
-      2: Événement tactique (mouvement routine, petite frappe, annonce mineure)
-      3: Événement opérationnel (attaque infrastructure, déploiement significatif, budget important)
-      4: Escalade stratégique (attaque massive, changement doctrine, annonce majeure)
-      5: Crise mondiale (guerre déclarée, frappe nucléaire, rupture diplomatique majeure)
+    5. IMPORTANCE (1-5) - SOIS CONSERVATEUR :
+      1: Incident mineur local, mouvement routine de navire/avion, déclaration de routine
+      2: Événement tactique standard (patrouille, petite frappe isolée, annonce politique mineure)
+      3: Événement opérationnel notable (attaque infrastructure, déploiement multi-unités, budget défense significatif)
+      4: Escalade stratégique majeure (attaque massive coordonnée, changement doctrine militaire, rupture diplomatique)
+      5: Crise mondiale exceptionnelle (guerre déclarée, frappe nucléaire, effondrement régional)
+      
+      ⚠️ Par défaut, commence à 2 et augmente seulement si l'événement a clairement un impact stratégique.
+      ⚠️ Les mouvements militaires de routine = 2 maximum (sauf déploiement massif)
 
-    FORMAT JSON (strict) :
+    FORMAT JSON (strict) - TOUS LES CHAMPS SONT OBLIGATOIRES :
     {{
       "events": [
         {{
           "event_summary": "description factuelle courte",
           "typologie": "MIL ou POL ou MOVE ou OTHER",
           "strategic_importance": 1-5,
-          "main_location": "nom du lieu",
-          "location_type": "explicit ou inferred",
-          "latitude": nombre décimal,
-          "longitude": nombre décimal,
+          "main_location": "nom du lieu ou 'Unknown' si non localisable",
+          "location_type": "explicit ou inferred ou unknown",
+          "latitude": nombre décimal ou null,
+          "longitude": nombre décimal ou null,
           "confidence": "high ou medium ou low"
         }}
       ]
     }}
+    
+    ⚠️ Le champ "confidence" est OBLIGATOIRE dans chaque événement.
+    ⚠️ RÈGLE CRITIQUE : Si tu ne peux pas localiser l'événement de manière fiable :
+       - main_location: "Unknown"
+       - location_type: "unknown"
+       - latitude: null
+       - longitude: null
+       - confidence: "low"
+    ⚠️ NE JAMAIS utiliser les coordonnées 0.0, 0.0 (Golfe de Guinée) par défaut !
 
     Si aucun événement → retourne {{"events":[]}}
 
@@ -171,7 +184,7 @@ def extract_events_and_geoloc(tweet_text):
       "events": [{{
         "event_summary": "Déploiement de 5 KC-135 et 6 F-35A depuis RAF Mildenhall vers la Jordanie",
         "typologie": "MOVE",
-        "strategic_importance": 3,
+        "strategic_importance": 2,
         "main_location": "RAF Mildenhall to Jordan deployment",
         "location_type": "explicit",
         "latitude": 52.36,
@@ -185,7 +198,7 @@ def extract_events_and_geoloc(tweet_text):
       "events": [{{
         "event_summary": "Navire de transport expéditionnaire USNS Point Loma arrive à Little Creek",
         "typologie": "MOVE",
-        "strategic_importance": 2,
+        "strategic_importance": 1,
         "main_location": "Little Creek waters, Virginia",
         "location_type": "inferred",
         "latitude": 36.90,
@@ -199,7 +212,7 @@ def extract_events_and_geoloc(tweet_text):
       "events": [{{
         "event_summary": "Patrouille NATO E-3A et A330 MRTT en soutien de F-35A au-dessus de la Pologne orientale",
         "typologie": "MOVE",
-        "strategic_importance": 3,
+        "strategic_importance": 2,
         "main_location": "Eastern Poland",
         "location_type": "inferred",
         "latitude": 51.0,
@@ -213,7 +226,7 @@ def extract_events_and_geoloc(tweet_text):
       "events": [{{
         "event_summary": "Attaque de drone sur le village de Volna, incendie en cours",
         "typologie": "MIL",
-        "strategic_importance": 3,
+        "strategic_importance": 2,
         "main_location": "Volna, Krasnodar region, Russia",
         "location_type": "explicit",
         "latitude": 45.35,
@@ -227,12 +240,26 @@ def extract_events_and_geoloc(tweet_text):
       "events": [{{
         "event_summary": "Navire poseur de câbles CS Decisive arrive à Sydney",
         "typologie": "OTHER",
-        "strategic_importance": 2,
+        "strategic_importance": 1,
         "main_location": "Sydney waters, Australia",
         "location_type": "inferred",
         "latitude": -33.85,
         "longitude": 151.25,
         "confidence": "medium"
+      }}]
+    }}
+
+    Tweet: "It's likely that the first intercepted projectile was an RM-48U. The second interception appears to be a genuine Iskander-M missile."
+    {{
+      "events": [{{
+        "event_summary": "Interception de deux missiles : un RM-48U présumé et un Iskander-M confirmé",
+        "typologie": "MIL",
+        "strategic_importance": 2,
+        "main_location": "Unknown",
+        "location_type": "unknown",
+        "latitude": null,
+        "longitude": null,
+        "confidence": "low"
       }}]
     }}
 
@@ -262,4 +289,3 @@ def extract_events_and_geoloc(tweet_text):
     except Exception as e:
         print("Ollama error:", e)
         return None
-
