@@ -341,4 +341,4 @@ def get_tweets(
     cur.close()
     conn.close()
 
-    return {"tension_score": tension_score}
+    return tension_score
