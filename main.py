@@ -341,4 +341,9 @@ def get_tweets(
     cur.close()
     conn.close()
 
-    return tension_score
+    return {
+        "country": country,
+        "tension_score": float(tension_score),
+        "niveau_tension": niveau_tension,
+        "evenements": evenements_json
+    }
