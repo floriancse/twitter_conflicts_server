@@ -347,5 +347,6 @@ def get_tweets(
             "niveau_tension": niveau_tension,
             "evenements": evenements_json
         }
+        
     except:
-        return 0
+        return None

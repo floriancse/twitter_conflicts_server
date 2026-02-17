@@ -1,15 +1,13 @@
-"""
-Module d'extraction d'événements géopolitiques via LLM (version simplifiée)
-===========================================================================
-
-Prompt allégé pour éviter les hallucinations géographiques.
-Focus sur l'extraction d'événements concrets uniquement.
-"""
-
-import ollama
 import json
+import os
+from groq import Groq
+from dotenv import load_dotenv
+
+load_dotenv()
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 def extract_events_and_geoloc(tweet_text):
+    
     """
     Analyse un tweet OSINT et extrait les événements géolocalisés via LLM.
     
@@ -20,25 +18,28 @@ def extract_events_and_geoloc(tweet_text):
         dict: Dictionnaire JSON contenant la liste des événements extraits
     """
     
-    prompt = f"""Tu es un analyste OSINT. Extrais UNIQUEMENT les événements concrets et physiques de ce tweet.
+    prompt = f"""You are an OSINT analyst. Extract ONLY concrete physical events from this tweet.
 
-    RÈGLES D'EXTRACTION :
+    EXTRACTION RULES:
 
-    1. QUOI EXTRAIRE :
-      ✓ Attaques (drone, missile, artillerie)
-      ✓ Saisies/arraisonnements de navires
-      ✓ Mouvements militaires : déploiements navals/aériens, patrouilles, repositionnements tactiques
-      ✓ Incidents (collisions, incendies, explosions)
-      ✓ Violences (tirs, affrontements)
-      ✓ Déclarations politiques (annonces officielles, budgets défense, lois, intentions stratégiques)
+    1. WHAT TO EXTRACT:
+      ✓ Attacks (drone, missile, artillery)
+      ✓ Ship seizures/boardings
+      ✓ Military movements: naval/air deployments, patrols, tactical repositioning
+      ✓ Incidents (collisions, fires, explosions)
+      ✓ Violence (shootings, clashes)
+      ✓ Political declarations (official announcements, defense budgets, laws, strategic intentions)
       
-      ✗ NE PAS extraire : tweets purement informatifs sans événement
+      ✗ DO NOT extract: purely informational tweets without events
 
-    2. GÉOLOCALISATION (règles strictes par type) :
+    2. GEOLOCATION (strict rules by type):
 
-      A) ÉVÉNEMENTS MARITIMES
-          Si le tweet contient : "sea", "ocean", "waters", "strait" + un nom de mer/océan
-          → Place le point EN MER selon cette table :
+      CRITICAL: Use ONLY locations explicitly named in the tweet
+      Do NOT infer location from actor names (e.g., "Islamic State" does not mean Middle East)
+
+      A) MARITIME EVENTS
+          If tweet contains: "sea", "ocean", "waters", "strait" + sea/ocean name
+          → Place point AT SEA according to this table:
           
           Caribbean Sea / Caribbean           → 15.0, -75.0
           South China Sea                     → 10.0, 115.0
@@ -57,45 +58,57 @@ def extract_events_and_geoloc(tweet_text):
           
           → location_type: "inferred", confidence: "medium"
 
-      B) NAVIRES EN MOUVEMENT (arriving/departing/coming into/leaving)
-          → Place le point dans les EAUX ADJACENTES au port mentionné :
+      B) SHIPS IN MOVEMENT (arriving/departing/coming into/leaving)
+          → Place point SLIGHTLY INLAND from the port to ensure polygon intersection:
           
-          Little Creek, Virginia         → 36.90, -76.00
-          Sydney, Australia              → -33.85, 151.25
-          Norfolk, USA                   → 36.90, -76.05
-          Portsmouth, UK                 → 50.80, -1.10
+          Little Creek, Virginia         → 36.92, -76.02  # Décalé vers terre
+          Sydney, Australia              → -33.87, 151.21  # Décalé vers terre
+          Norfolk, USA                   → 36.92, -76.08   # Décalé vers terre
+          Portsmouth, UK                 → 50.82, -1.08    # Décalé vers terre
           
           → location_type: "inferred", confidence: "medium"
 
-      C) LIEUX TERRESTRES (villes, bases, régions)
-          → Utilise tes connaissances géographiques pour la ville/base/région :
-          
+      C) LAND LOCATIONS (cities, bases, regions)
+          → Use ONLY the geographic locations EXPLICITLY mentioned in the tweet
+          → Do NOT infer locations based on actors/groups mentioned
+          → If a city/region is mentioned, use your geographic knowledge:
+      
+          Examples:
           Volna, Krasnodar, Russia       → 45.35, 37.15
           Odesa, Ukraine                 → 46.48, 30.73
+          Maputo, Mozambique             → -25.97, 32.58
+          Pemba, Mozambique              → -12.97, 40.52
           RAF Mildenhall, UK             → 52.36, 0.49
           RAF Lakenheath, UK             → 52.41, 0.56
           Muwaffaq Salti AB, Jordan      → 31.97, 36.26
           Trapani, Italy                 → 38.02, 12.50
           Eastern Poland (zone)          → 51.0, 23.0
           Tehran, Iran                   → 35.70, 51.42
+          Western Ukraine (zone)         → 49.5, 24.0
+          Central Ukraine (zone)         → 49.0, 31.5
+          Eastern Ukraine / Donbas       → 48.0, 38.0
+          Zaporizhzhia region, Ukraine   → 47.5, 35.5
+          Kherson region, Ukraine        → 46.5, 32.5
+          Kharkiv, Ukraine               → 49.99, 36.23
+
           
           → location_type: "explicit", confidence: "high"
 
-      D) COORDONNÉES FOURNIES DANS LE TWEET
-          Si le tweet contient déjà des coordonnées GPS (ex: "35.733017, 51.494024")
-          → Utilise-les directement, confidence: "high"
+      D) COORDINATES PROVIDED IN TWEET
+          If tweet already contains GPS coordinates (e.g., "35.733017, 51.494024")
+          → Use them directly, confidence: "high"
 
-    3. TYPOLOGIE :
-      - MIL : Attaque, bombardement, frappe, tir, combat, explosion militaire
-      - POL : Déclaration politique, annonce officielle, budget défense, loi militaire, intention stratégique
-      - MOVE : Déploiement naval/aérien, patrouille, repositionnement tactique, arrivée/départ de navire militaire, vol de surveillance
-      - OTHER : Tout le reste (saisie civile, incident non-militaire, accident)
+    3. TYPOLOGY:
+      - MIL: Attack, bombing, strike, shooting, combat, military explosion
+      - POL: Political declaration, official announcement, defense budget, military law, strategic intention
+      - MOVE: Naval/air deployment, patrol, tactical repositioning, military ship arrival/departure, surveillance flight
+      - OTHER: Everything else (civilian seizure, non-military incident, accident)
 
-    4. GÉOLOCALISATION DES ÉVÉNEMENTS POLITIQUES (POL) :
-      → Géolocalise à la CAPITALE du pays concerné par la déclaration
-      → Si plusieurs pays mentionnés, choisis le pays dont émane la déclaration
+    4. GEOLOCATION OF POLITICAL EVENTS (POL):
+      → Geolocate at CAPITAL of country concerned by declaration
+      → If multiple countries mentioned, choose country from which declaration originates
       
-      Capitales principales :
+      Main capitals:
       Taiwan (Taipei)           → 25.03, 121.56
       Ukraine (Kyiv)            → 50.45, 30.52
       Russia (Moscow)           → 55.75, 37.62
@@ -112,49 +125,53 @@ def extract_events_and_geoloc(tweet_text):
       
       → location_type: "explicit", confidence: "high"
 
-    5. IMPORTANCE (1-5) - SOIS CONSERVATEUR :
-      1: Incident mineur local, mouvement routine de navire/avion, déclaration de routine
-      2: Événement tactique standard (patrouille, petite frappe isolée, annonce politique mineure)
-      3: Événement opérationnel notable (attaque infrastructure, déploiement multi-unités, budget défense significatif)
-      4: Escalade stratégique majeure (attaque massive coordonnée, changement doctrine militaire, rupture diplomatique)
-      5: Crise mondiale exceptionnelle (guerre déclarée, frappe nucléaire, effondrement régional)
+    5. IMPORTANCE (1-5) - BE CONSERVATIVE:
+      1: Minor local incident, routine ship/aircraft movement, routine declaration
+      2: Standard tactical event (patrol, small isolated strike, minor political announcement)
+      3: Notable operational event (infrastructure attack, multi-unit deployment, significant defense budget)
+      4: Major strategic escalation (massive coordinated attack, military doctrine change, diplomatic rupture)
+      5: Exceptional global crisis (war declared, nuclear strike, regional collapse)
       
-      ⚠️ Par défaut, commence à 2 et augmente seulement si l'événement a clairement un impact stratégique.
-      ⚠️ Les mouvements militaires de routine = 2 maximum (sauf déploiement massif)
+      By default, start at 1 and increase only if event clearly has strategic impact.
 
-    FORMAT JSON (strict) - TOUS LES CHAMPS SONT OBLIGATOIRES :
+    6. SINGLE EVENT RULE: > - Even if multiple locations or units are mentioned, output ONLY ONE main event.
+      Choose the most specific location where the primary action is happening.
+      For logistics or flights between two points, geolocate at the ORIGIN (departure point).
+
+
+    JSON FORMAT (strict) - ALL FIELDS ARE MANDATORY - Return a JSON object with a list "events" containing EXACTLY ONE event object:
     {{
       "events": [
         {{
-          "event_summary": "description factuelle courte",
-          "typologie": "MIL ou POL ou MOVE ou OTHER",
+          "event_summary": "short factual description in English",
+          "typologie": "MIL or POL or MOVE or OTHER",
           "strategic_importance": 1-5,
-          "main_location": "nom du lieu ou 'Unknown' si non localisable",
-          "location_type": "explicit ou inferred ou unknown",
-          "latitude": nombre décimal ou null,
-          "longitude": nombre décimal ou null,
-          "confidence": "high ou medium ou low"
+          "main_location": "location name or 'Unknown' if not localizable",
+          "location_type": "explicit or inferred or unknown",
+          "latitude": decimal number or null,
+          "longitude": decimal number or null,
+          "confidence": "high or medium or low"
         }}
       ]
     }}
-    
-    ⚠️ Le champ "confidence" est OBLIGATOIRE dans chaque événement.
-    ⚠️ RÈGLE CRITIQUE : Si tu ne peux pas localiser l'événement de manière fiable :
-       - main_location: "Unknown"
-       - location_type: "unknown"
-       - latitude: null
-       - longitude: null
-       - confidence: "low"
-    ⚠️ NE JAMAIS utiliser les coordonnées 0.0, 0.0 (Golfe de Guinée) par défaut !
 
-    Si aucun événement → retourne {{"events":[]}}
+    ⚠️ The "confidence" field is MANDATORY in each event.
+    ⚠️ CRITICAL RULE: If you cannot reliably locate the event:
+      - main_location: "Unknown"
+      - location_type: "unknown"
+      - latitude: null
+      - longitude: null
+      - confidence: "low"
+    ⚠️ NEVER use coordinates 0.0, 0.0 (Gulf of Guinea) as default!
 
-    EXEMPLES :
+    If no event → return {{"events":[]}}
+
+    EXAMPLES:
 
     Tweet: "US special forces boarded and seized the Veronica III oil tanker in the Caribbean Sea."
     {{
       "events": [{{
-        "event_summary": "Saisie du pétrolier Veronica III par forces spéciales US en Mer des Caraïbes",
+        "event_summary": "US special forces seized oil tanker Veronica III in Caribbean Sea",
         "typologie": "OTHER",
         "strategic_importance": 3,
         "main_location": "Caribbean Sea",
@@ -168,7 +185,7 @@ def extract_events_and_geoloc(tweet_text):
     Tweet: "Taiwan will strengthen defence efforts, President Lai said. He is trying to pass a 40 billion defence bill."
     {{
       "events": [{{
-        "event_summary": "Le président Lai annonce un renforcement de la défense avec un budget de 40 milliards en discussion",
+        "event_summary": "President Lai announces defense strengthening with 40 billion defense bill under discussion",
         "typologie": "POL",
         "strategic_importance": 3,
         "main_location": "Taipei, Taiwan",
@@ -182,7 +199,7 @@ def extract_events_and_geoloc(tweet_text):
     Tweet: "At least five KC-135R/T Stratotanker departing from RAF Mildenhall heading south, supporting six F-35A from Vermont ANG flying to Jordan."
     {{
       "events": [{{
-        "event_summary": "Déploiement de 5 KC-135 et 6 F-35A depuis RAF Mildenhall vers la Jordanie",
+        "event_summary": "Deployment of 5 KC-135 and 6 F-35A from RAF Mildenhall to Jordan",
         "typologie": "MOVE",
         "strategic_importance": 2,
         "main_location": "RAF Mildenhall to Jordan deployment",
@@ -196,7 +213,7 @@ def extract_events_and_geoloc(tweet_text):
     Tweet: "Future USNS Point Loma (EPF-15) expeditionary fast transport coming into Little Creek, Virginia - February 14, 2026"
     {{
       "events": [{{
-        "event_summary": "Navire de transport expéditionnaire USNS Point Loma arrive à Little Creek",
+        "event_summary": "Expeditionary fast transport USNS Point Loma arriving at Little Creek",
         "typologie": "MOVE",
         "strategic_importance": 1,
         "main_location": "Little Creek waters, Virginia",
@@ -210,7 +227,7 @@ def extract_events_and_geoloc(tweet_text):
     Tweet: "NATO E-3A Sentry AEW&C Aircraft and Airbus A330 MRTT supporting F-35A are airborne over Eastern Poland."
     {{
       "events": [{{
-        "event_summary": "Patrouille NATO E-3A et A330 MRTT en soutien de F-35A au-dessus de la Pologne orientale",
+        "event_summary": "NATO E-3A and A330 MRTT patrol supporting F-35A over Eastern Poland",
         "typologie": "MOVE",
         "strategic_importance": 2,
         "main_location": "Eastern Poland",
@@ -224,7 +241,7 @@ def extract_events_and_geoloc(tweet_text):
     Tweet: "Emergency services in Krasnodar said firefighters are battling a blaze in Volna village after a drone attack."
     {{
       "events": [{{
-        "event_summary": "Attaque de drone sur le village de Volna, incendie en cours",
+        "event_summary": "Drone attack on Volna village, fire in progress",
         "typologie": "MIL",
         "strategic_importance": 2,
         "main_location": "Volna, Krasnodar region, Russia",
@@ -238,7 +255,7 @@ def extract_events_and_geoloc(tweet_text):
     Tweet: "CS Decisive cable-laying vessel coming into Sydney, Australia - February 13, 2026"
     {{
       "events": [{{
-        "event_summary": "Navire poseur de câbles CS Decisive arrive à Sydney",
+        "event_summary": "Cable-laying vessel CS Decisive arriving at Sydney",
         "typologie": "OTHER",
         "strategic_importance": 1,
         "main_location": "Sydney waters, Australia",
@@ -252,7 +269,7 @@ def extract_events_and_geoloc(tweet_text):
     Tweet: "It's likely that the first intercepted projectile was an RM-48U. The second interception appears to be a genuine Iskander-M missile."
     {{
       "events": [{{
-        "event_summary": "Interception de deux missiles : un RM-48U présumé et un Iskander-M confirmé",
+        "event_summary": "Interception of two missiles: presumed RM-48U and confirmed Iskander-M",
         "typologie": "MIL",
         "strategic_importance": 2,
         "main_location": "Unknown",
@@ -263,29 +280,28 @@ def extract_events_and_geoloc(tweet_text):
       }}]
     }}
 
-    TWEET À ANALYSER :
+    TWEET TO ANALYZE:
     {tweet_text}
     """
 
     try:
-        response = ollama.chat(
-            model='richardyoung/qwen3-14b-abliterated:q5_k_m',
-            messages=[{'role': 'user', 'content': prompt}],
-            format='json',
-            options={
-                'temperature': 0.0,
-                'num_ctx': 4096,
-                'top_p': 0.9,
-                'repeat_penalty': 1.1,
-            }
-        )
+        completion = client.chat.completions.create(
+                    # Llama 3.3 70B est actuellement le meilleur remplaçant gratuit de Qwen 3.5
+                    model="llama-3.3-70b-versatile", 
+                    messages=[{"role": "user", "content": prompt}],
+                    # Groq supporte aussi le mode JSON
+                    response_format={"type": "json_object"},
+                    temperature=0,
+                )
         
-        raw_content = response['message']['content'].strip()
-        return json.loads(raw_content)
+        raw_content = completion.choices[0].message.content.strip()
+        data = json.loads(raw_content)
+        
+        if data.get("events") and len(data["events"]) > 1:
+            data["events"] = [data["events"][0]]
 
-    except json.JSONDecodeError as e:
-        print("JSON parse error:", e)
-        return None
+        return data
+
     except Exception as e:
-        print("Ollama error:", e)
+        print(f"Erreur Cloud API : {e}")
         return None

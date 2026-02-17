@@ -82,7 +82,7 @@ for source in sources:
             if not item["description"].startswith("GeoConfirmed "):
                 continue
 
-        desc = item["title"]
+        desc = item["title"]    
 
         # Filtrage des retweets, updates et liens simples
         if desc.startswith(("RT", "x.com","Update")):
@@ -91,6 +91,7 @@ for source in sources:
         # Extraction des événements et géolocalisation via LLM
         try:
             llm_to_geocode = extract_events_and_geoloc(desc)
+            print(llm_to_geocode)
         except Exception as e:
             print("LLM error:", e)
             continue
@@ -143,6 +144,7 @@ for source in sources:
             VALUES (%s, %s)
             """, (item["id"], img))
             conn.commit()
+            
             
 cur.execute("REFRESH MATERIALIZED VIEW tension_index_mv;")
 conn.commit()
