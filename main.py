@@ -343,7 +343,7 @@ def get_tweets(
 
         return {
             "country": country,
-            "tension_score": float(tension_score),
+            "tension_score": int(tension_score),
             "niveau_tension": niveau_tension,
             "evenements": evenements_json
         }

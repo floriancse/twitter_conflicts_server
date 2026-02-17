@@ -54,3 +54,64 @@
 2026-02-16 11:55:08 Scraping terminé
 2026-02-17 13:38:23 Scraping terminé
 2026-02-17 13:39:28 Scraping terminé
+{'events': []}
+{'events': []}
+{'events': []}
+{'events': []}
+{'events': []}
+{'events': [{'event_summary': 'IDF holds confidential meeting on home front readiness for potential Iranian attack', 'typologie': 'POL', 'strategic_importance': 2, 'main_location': 'Jerusalem, Israel', 'location_type': 'explicit', 'latitude': 31.78, 'longitude': 35.22, 'confidence': 'high'}]}
+Traceback (most recent call last):
+  File "/home/eos/PORTFOLIO/servers/twitter_conflicts_server/python_script/feed.py", line 131, in <module>
+    cur.execute("""
+    ~~~~~~~~~~~^^^^
+    INSERT INTO public.TWEETS (tweet_id, date_published, url, author, body, accuracy, importance, typology, summary, GEOM)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        """,
+        ^^^^
+    (item["id"], item["date"], item["link"], item["author"], item["title"], tweet_accuracy, strategic_importance, typology, event_summary, geom_wkt, geom_wkt))
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+psycopg2.errors.UniqueViolation: duplicate key value violates unique constraint "tweets_pkey"
+DETAIL:  Key (tweet_id)=(2023830047203656013) already exists.
+
+{'events': []}
+{'events': []}
+{'events': []}
+{'events': []}
+{'events': []}
+{'events': [{'event_summary': 'China tests blockades in the South China Sea using 2000 fishing fleet boats in holding patterns', 'typologie': 'MOVE', 'strategic_importance': 3, 'main_location': 'South China Sea', 'location_type': 'inferred', 'latitude': 10.0, 'longitude': 115.0, 'confidence': 'medium'}]}
+Traceback (most recent call last):
+  File "/home/eos/PORTFOLIO/servers/twitter_conflicts_server/python_script/feed.py", line 131, in <module>
+    cur.execute("""
+    ~~~~~~~~~~~^^^^
+    INSERT INTO public.TWEETS (tweet_id, date_published, url, author, body, accuracy, importance, typology, summary, GEOM)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        """,
+        ^^^^
+    (item["id"], item["date"], item["link"], item["author"], item["title"], tweet_accuracy, strategic_importance, typology, event_summary, geom_wkt, geom_wkt))
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+psycopg2.errors.UniqueViolation: duplicate key value violates unique constraint "tweets_pkey"
+DETAIL:  Key (tweet_id)=(2023812776649748911) already exists.
+
+{'events': []}
+{'events': []}
+{'events': []}
+{'events': []}
+{'events': []}
+{'events': []}
+{'events': [{'event_summary': 'Redeployment of more than 50 US F-35, F-22 and F-16 fighters and 33 warships, including USS Gerald R Ford and several guided missile destroyers, to the Middle East region', 'typologie': 'MOVE', 'strategic_importance': 2, 'main_location': 'Unknown', 'location_type': 'unknown', 'latitude': None, 'longitude': None, 'confidence': 'low'}]}
+Traceback (most recent call last):
+  File "/home/eos/PORTFOLIO/servers/twitter_conflicts_server/python_script/feed.py", line 131, in <module>
+    cur.execute("""
+    ~~~~~~~~~~~^^^^
+    INSERT INTO public.TWEETS (tweet_id, date_published, url, author, body, accuracy, importance, typology, summary, GEOM)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    ...<4 lines>...
+        """,
+        ^^^^
+    (item["id"], item["date"], item["link"], item["author"], item["title"], tweet_accuracy, strategic_importance, typology, event_summary, geom_wkt, geom_wkt))
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+psycopg2.errors.UniqueViolation: duplicate key value violates unique constraint "tweets_pkey"
+DETAIL:  Key (tweet_id)=(2023854311525281976) already exists.
+

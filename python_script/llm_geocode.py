@@ -1,13 +1,15 @@
-import json
-import os
-from groq import Groq
-from dotenv import load_dotenv
+"""
+Module d'extraction d'événements géopolitiques via LLM (version simplifiée)
+===========================================================================
 
-load_dotenv()
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+Prompt allégé pour éviter les hallucinations géographiques.
+Focus sur l'extraction d'événements concrets uniquement.
+"""
+
+import ollama
+import json
 
 def extract_events_and_geoloc(tweet_text):
-    
     """
     Analyse un tweet OSINT et extrait les événements géolocalisés via LLM.
     
@@ -134,12 +136,7 @@ def extract_events_and_geoloc(tweet_text):
       
       By default, start at 1 and increase only if event clearly has strategic impact.
 
-    6. SINGLE EVENT RULE: > - Even if multiple locations or units are mentioned, output ONLY ONE main event.
-      Choose the most specific location where the primary action is happening.
-      For logistics or flights between two points, geolocate at the ORIGIN (departure point).
-
-
-    JSON FORMAT (strict) - ALL FIELDS ARE MANDATORY - Return a JSON object with a list "events" containing EXACTLY ONE event object:
+    JSON FORMAT (strict) - ALL FIELDS ARE MANDATORY - Only output ONE JSON about the main event :
     {{
       "events": [
         {{
@@ -285,23 +282,24 @@ def extract_events_and_geoloc(tweet_text):
     """
 
     try:
-        completion = client.chat.completions.create(
-                    # Llama 3.3 70B est actuellement le meilleur remplaçant gratuit de Qwen 3.5
-                    model="llama-3.3-70b-versatile", 
-                    messages=[{"role": "user", "content": prompt}],
-                    # Groq supporte aussi le mode JSON
-                    response_format={"type": "json_object"},
-                    temperature=0,
-                )
+        response = ollama.chat(
+            model='gpt-oss:20b',
+            messages=[{'role': 'user', 'content': prompt}],
+            format='json',
+            options={
+                'temperature': 0.0,
+                'num_ctx': 4096,
+                'top_p': 0.9,
+                'repeat_penalty': 1.1,
+            }
+        )
         
-        raw_content = completion.choices[0].message.content.strip()
-        data = json.loads(raw_content)
-        
-        if data.get("events") and len(data["events"]) > 1:
-            data["events"] = [data["events"][0]]
+        raw_content = response['message']['content'].strip()
+        return json.loads(raw_content)
 
-        return data
-
+    except json.JSONDecodeError as e:
+        print("JSON parse error:", e)
+        return None
     except Exception as e:
-        print(f"Erreur Cloud API : {e}")
+        print("Ollama error:", e)
         return None
