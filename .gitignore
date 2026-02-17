@@ -2,7 +2,7 @@ __pycache__/
 venv/
 *.pyc
 .env
-docker-compose.yml
-nitter.conf
-sessions.jsonl
+nitter/docker-compose.yml
+nitter/nitter.conf
+nitter/sessions.jsonl
 tension_index.sql
