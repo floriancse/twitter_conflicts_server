@@ -38,7 +38,7 @@ def extract_events_and_geoloc(tweet_text):
       Do NOT infer location from actor names (e.g., "Islamic State" does not mean Middle East)
 
       A) MARITIME EVENTS
-          If tweet contains: "sea", "ocean", "waters", "strait" + sea/ocean name
+          If tweet contains: "sea", "ocean", "waters", "strait", "gulf" + sea/ocean name
           → Place point AT SEA according to this table:
           
           Caribbean Sea / Caribbean           → 15.0, -75.0
@@ -48,6 +48,7 @@ def extract_events_and_geoloc(tweet_text):
           Red Sea                             → 18.0, 38.0
           Mediterranean Sea / Mediterranean   → 35.0, 18.0
           Persian Gulf / Arabian Gulf         → 26.0, 52.0
+          Gulf of Oman                        → 25.0, 58.0    
           Strait of Hormuz / Hormuz           → 26.6, 56.5    
           Gulf of Mexico                      → 25.0, -90.0
           Baltic Sea                          → 58.0, 20.0

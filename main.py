@@ -81,13 +81,14 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://127.0.0.1:5500",                  # Serveur de développement local (Live Server VSCode)
-        "http://localhost:5500",                  # Alias localhost
-        "https://floriancse.github.io",           # GitHub Pages (production)
+        "http://127.0.0.1:5500",                 
+        "http://localhost:5500",
+        "http://localhost:3000",                  
+        "https://floriancse.github.io",          
     ],
-    allow_credentials=False,         # Pas d'authentification pour cette API
-    allow_methods=["*"],             # Toutes les méthodes HTTP autorisées
-    allow_headers=["*"],             # Tous les headers autorisés
+    allow_credentials=False,       
+    allow_methods=["*"],            
+    allow_headers=["*"],           
 )
 
 
