@@ -22,8 +22,6 @@ def extract_events_and_geoloc(tweet_text):
     
     prompt = f"""You are an OSINT analyst. Extract ONLY concrete physical events from this tweet.
 
-    EXTRACTION RULES:
-
     1. WHAT TO EXTRACT:
       ✓ Attacks (drone, missile, artillery)
       ✓ Ship seizures/boardings
@@ -283,12 +281,12 @@ def extract_events_and_geoloc(tweet_text):
 
     try:
         response = ollama.chat(
-            model='gpt-oss:20b',
+            model='richardyoung/qwen3-14b-abliterated:q5_k_m',
             messages=[{'role': 'user', 'content': prompt}],
             format='json',
             options={
                 'temperature': 0.0,
-                'num_ctx': 4096,
+                'num_ctx': 8192,
                 'top_p': 0.9,
                 'repeat_penalty': 1.1,
             }

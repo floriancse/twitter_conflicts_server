@@ -58,7 +58,7 @@ cur.execute("SELECT tweet_id from tweets")
 tweet_in_db = [i[0] for i in cur.fetchall()]
 
 # Liste des sources OSINT à scraper
-sources = ["@GeoConfirmed", "@sentdefender","@OSINTWarfare","@Osinttechnical","@Conflict_Radar","@WarMonitor3","@NOELreports","@ACLEDINFO"]
+sources = ["@GeoConfirmed", "@sentdefender","@OSINTWarfare","@Osinttechnical","@Conflict_Radar","@Globalsurv","@NOELreports"]
 
 # Mapping de la confiance LLM vers les valeurs françaises de la BDD
 accuracy_table = {
@@ -91,7 +91,6 @@ for source in sources:
         # Extraction des événements et géolocalisation via LLM
         try:
             llm_to_geocode = extract_events_and_geoloc(desc)
-            print(llm_to_geocode)
         except Exception as e:
             print("LLM error:", e)
             continue
