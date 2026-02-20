@@ -56,6 +56,7 @@ def extract_events_and_geoloc(tweet_text):
           Atlantic Ocean                      → 25.0, -40.0
           Indian Ocean                        → -10.0, 75.0
           Japanese waters / Japanese maritime → 34.5, 138.5
+          Strait of Gibraltar                 → 36.0, -5.5
           
           → location_type: "inferred", confidence: "medium"
 
@@ -91,6 +92,9 @@ def extract_events_and_geoloc(tweet_text):
           Zaporizhzhia region, Ukraine   → 47.5, 35.5
           Kherson region, Ukraine        → 46.5, 32.5
           Kharkiv, Ukraine               → 49.99, 36.23
+          Naval Air Station Sigonella, Italy → 37.41, 14.92
+          Lajes Airfield, Azores         → 38.76, -27.09
+          Langley Air Force Base, VA     → 37.08, -76.36
 
           
           → location_type: "explicit", confidence: "high"
@@ -102,7 +106,7 @@ def extract_events_and_geoloc(tweet_text):
     3. TYPOLOGY:
       - MIL: Attack, bombing, strike, shooting, combat, military explosion
       - POL: Political declaration, official announcement, defense budget, military law, strategic intention
-      - MOVE: Naval/air deployment, patrol, tactical repositioning, military ship arrival/departure, surveillance flight
+      - MOVE: Naval/air deployment, patrol, tactical repositioning, military ship arrival/departure, surveillance flight. For MOVE, extract additional locations if explicitly mentioned: origin (starting point/base), current (transit point/current position), destination (end point/target area). Use the same geolocation rules as above for each.
       - OTHER: Everything else (civilian seizure, non-military incident, accident)
 
     4. GEOLOCATION OF POLITICAL EVENTS (POL):
@@ -140,24 +144,29 @@ def extract_events_and_geoloc(tweet_text):
       "events": [
         {{
           "event_summary": "short factual description in English",
-          "typologie": "MIL or POL or MOVE or OTHER",
+          "typology": "MIL or POL or MOVE or OTHER",
           "strategic_importance": 1-5,
           "main_location": "location name or 'Unknown' if not localizable",
           "location_type": "explicit or inferred or unknown",
           "latitude": decimal number or null,
           "longitude": decimal number or null,
-          "confidence": "high or medium or low"
+          "confidence": "high or medium or low",
+          "origin": {{ "location": "name or null", "location_type": "explicit or inferred or unknown or null", "latitude": decimal or null, "longitude": decimal or null, "confidence": "high or medium or low or null" }},
+          "current": {{ "location": "name or null", "location_type": "explicit or inferred or unknown or null", "latitude": decimal or null, "longitude": decimal or null, "confidence": "high or medium or low or null" }},
+          "destination": {{ "location": "name or null", "location_type": "explicit or inferred or unknown or null", "latitude": decimal or null, "longitude": decimal or null, "confidence": "high or medium or low or null" }}
         }}
       ]
     }}
 
     ⚠️ The "confidence" field is MANDATORY in each event.
-    ⚠️ CRITICAL RULE: If you cannot reliably locate the event:
+    ⚠️ For typology != "MOVE", set origin/current/destination to null values (e.g., "location": null, etc.).
+    ⚠️ CRITICAL RULE: If you cannot reliably locate the event or sub-locations:
       - main_location: "Unknown"
       - location_type: "unknown"
       - latitude: null
       - longitude: null
       - confidence: "low"
+      - Same for origin/current/destination if not extractable.
     ⚠️ NEVER use coordinates 0.0, 0.0 (Gulf of Guinea) as default!
 
     If no event → return {{"events":[]}}
@@ -168,13 +177,16 @@ def extract_events_and_geoloc(tweet_text):
     {{
       "events": [{{
         "event_summary": "US special forces seized oil tanker Veronica III in Caribbean Sea",
-        "typologie": "OTHER",
+        "typology": "OTHER",
         "strategic_importance": 3,
         "main_location": "Caribbean Sea",
         "location_type": "inferred",
         "latitude": 15.0,
         "longitude": -75.0,
-        "confidence": "medium"
+        "confidence": "medium",
+        "origin": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
+        "current": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
+        "destination": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }}
       }}]
     }}
 
@@ -182,13 +194,16 @@ def extract_events_and_geoloc(tweet_text):
     {{
       "events": [{{
         "event_summary": "President Lai announces defense strengthening with 40 billion defense bill under discussion",
-        "typologie": "POL",
+        "typology": "POL",
         "strategic_importance": 3,
         "main_location": "Taipei, Taiwan",
         "location_type": "explicit",
         "latitude": 25.03,
         "longitude": 121.56,
-        "confidence": "high"
+        "confidence": "high",
+        "origin": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
+        "current": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
+        "destination": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }}
       }}]
     }}
 
@@ -196,13 +211,16 @@ def extract_events_and_geoloc(tweet_text):
     {{
       "events": [{{
         "event_summary": "Deployment of 5 KC-135 and 6 F-35A from RAF Mildenhall to Jordan",
-        "typologie": "MOVE",
+        "typology": "MOVE",
         "strategic_importance": 2,
         "main_location": "RAF Mildenhall to Jordan deployment",
         "location_type": "explicit",
         "latitude": 52.36,
         "longitude": 0.49,
-        "confidence": "high"
+        "confidence": "high",
+        "origin": {{ "location": "RAF Mildenhall, UK", "location_type": "explicit", "latitude": 52.36, "longitude": 0.49, "confidence": "high" }},
+        "current": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
+        "destination": {{ "location": "Jordan", "location_type": "explicit", "latitude": 31.97, "longitude": 36.26, "confidence": "high" }}
       }}]
     }}
 
@@ -210,13 +228,16 @@ def extract_events_and_geoloc(tweet_text):
     {{
       "events": [{{
         "event_summary": "Expeditionary fast transport USNS Point Loma arriving at Little Creek",
-        "typologie": "MOVE",
+        "typology": "MOVE",
         "strategic_importance": 1,
         "main_location": "Little Creek waters, Virginia",
         "location_type": "inferred",
         "latitude": 36.90,
         "longitude": -76.00,
-        "confidence": "medium"
+        "confidence": "medium",
+        "origin": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
+        "current": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
+        "destination": {{ "location": "Little Creek, Virginia", "location_type": "inferred", "latitude": 36.92, "longitude": -76.02, "confidence": "medium" }}
       }}]
     }}
 
@@ -224,13 +245,16 @@ def extract_events_and_geoloc(tweet_text):
     {{
       "events": [{{
         "event_summary": "NATO E-3A and A330 MRTT patrol supporting F-35A over Eastern Poland",
-        "typologie": "MOVE",
+        "typology": "MOVE",
         "strategic_importance": 2,
         "main_location": "Eastern Poland",
         "location_type": "inferred",
         "latitude": 51.0,
         "longitude": 23.0,
-        "confidence": "medium"
+        "confidence": "medium",
+        "origin": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
+        "current": {{ "location": "Eastern Poland", "location_type": "inferred", "latitude": 51.0, "longitude": 23.0, "confidence": "medium" }},
+        "destination": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }}
       }}]
     }}
 
@@ -238,13 +262,16 @@ def extract_events_and_geoloc(tweet_text):
     {{
       "events": [{{
         "event_summary": "Drone attack on Volna village, fire in progress",
-        "typologie": "MIL",
+        "typology": "MIL",
         "strategic_importance": 2,
         "main_location": "Volna, Krasnodar region, Russia",
         "location_type": "explicit",
         "latitude": 45.35,
         "longitude": 37.17,
-        "confidence": "high"
+        "confidence": "high",
+        "origin": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
+        "current": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
+        "destination": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }}
       }}]
     }}
 
@@ -252,13 +279,16 @@ def extract_events_and_geoloc(tweet_text):
     {{
       "events": [{{
         "event_summary": "Cable-laying vessel CS Decisive arriving at Sydney",
-        "typologie": "OTHER",
+        "typology": "OTHER",
         "strategic_importance": 1,
         "main_location": "Sydney waters, Australia",
         "location_type": "inferred",
         "latitude": -33.85,
         "longitude": 151.25,
-        "confidence": "medium"
+        "confidence": "medium",
+        "origin": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
+        "current": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
+        "destination": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }}
       }}]
     }}
 
@@ -266,23 +296,77 @@ def extract_events_and_geoloc(tweet_text):
     {{
       "events": [{{
         "event_summary": "Interception of two missiles: presumed RM-48U and confirmed Iskander-M",
-        "typologie": "MIL",
+        "typology": "MIL",
         "strategic_importance": 2,
         "main_location": "Unknown",
         "location_type": "unknown",
         "latitude": null,
         "longitude": null,
-        "confidence": "low"
+        "confidence": "low",
+        "origin": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
+        "current": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
+        "destination": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }}
+      }}]
+    }}
+
+    Tweet: "A U. S. Navy P-8A ""Poseidon"" operating out of Naval Air Station Sigonella, Italy has descended just east of the Strait of Gibraltar as USS Gerald R. Ford carrier strike group enters the Mediterranean Sea for the second time on this deployment."
+    {{
+      "events": [{{
+        "event_summary": "US Navy P-8A Poseidon from Sigonella descending east of Strait of Gibraltar as USS Gerald R. Ford enters Mediterranean",
+        "typology": "MOVE",
+        "strategic_importance": 2,
+        "main_location": "Strait of Gibraltar to Mediterranean",
+        "location_type": "inferred",
+        "latitude": 36.0,
+        "longitude": -5.5,
+        "confidence": "medium",
+        "origin": {{ "location": "Naval Air Station Sigonella, Italy", "location_type": "explicit", "latitude": 37.41, "longitude": 14.92, "confidence": "high" }},
+        "current": {{ "location": "East of Strait of Gibraltar", "location_type": "inferred", "latitude": 36.0, "longitude": -5.0, "confidence": "medium" }},
+        "destination": {{ "location": "Mediterranean Sea", "location_type": "inferred", "latitude": 35.0, "longitude": 18.0, "confidence": "medium" }}
+      }}]
+    }}
+
+    Tweet: "Lajes Airfield in the Azores, a key mid-Atlantic rest stop, has become a major hub of activity as the US deploys assets to the Middle East in preparation for an Iran strike. Seen here, USAF tankers and transports fill the airfield’s apron."
+    {{
+      "events": [{{
+        "event_summary": "US deployment of tankers and transports via Lajes Airfield to Middle East",
+        "typology": "MOVE",
+        "strategic_importance": 3,
+        "main_location": "Lajes Airfield, Azores",
+        "location_type": "explicit",
+        "latitude": 38.76,
+        "longitude": -27.09,
+        "confidence": "high",
+        "origin": {{ "location": "USA", "location_type": "explicit", "latitude": 38.90, "longitude": -77.04, "confidence": "high" }},
+        "current": {{ "location": "Lajes Airfield, Azores", "location_type": "explicit", "latitude": 38.76, "longitude": -27.09, "confidence": "high" }},
+        "destination": {{ "location": "Middle East", "location_type": "inferred", "latitude": 30.0, "longitude": 45.0, "confidence": "medium" }}
+      }}]
+    }}
+
+    Tweet: "A U.S. Air Force KC-46A ""Pegasus"" with call sign ROMA11 is on course for an Atlantic crossing, It is joined by six U.S. Air Force F-22 ""Raptors"" from the 1st Fighter Wing based at Langley Air Force Base, VA. This is the third attempt at a crossing with the previous two attempts being aborted due to issues with the tanker."
+    {{
+      "events": [{{
+        "event_summary": "USAF KC-46A and 6 F-22 Raptors from Langley AFB on Atlantic crossing",
+        "typology": "MOVE",
+        "strategic_importance": 2,
+        "main_location": "Atlantic Ocean crossing",
+        "location_type": "inferred",
+        "latitude": 25.0,
+        "longitude": -40.0,
+        "confidence": "medium",
+        "origin": {{ "location": "Langley Air Force Base, VA", "location_type": "explicit", "latitude": 37.08, "longitude": -76.36, "confidence": "high" }},
+        "current": {{ "location": "Atlantic crossing", "location_type": "inferred", "latitude": 25.0, "longitude": -40.0, "confidence": "medium" }},
+        "destination": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }}
       }}]
     }}
 
     TWEET TO ANALYZE:
-    {tweet_text}
-    """
+    {{tweet_text}}
+    """   
 
     try:
         response = ollama.chat(
-            model='richardyoung/qwen3-14b-abliterated:q5_k_m',
+            model='gpt-oss:20b',
             messages=[{'role': 'user', 'content': prompt}],
             format='json',
             options={
