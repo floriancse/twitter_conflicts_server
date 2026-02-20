@@ -51,6 +51,15 @@ def get_db_connection():
     )
     return conn
 
+
+def to_geom(loc):
+    lon = loc.get("longitude")
+    lat = loc.get("latitude")
+    if lon is not None and lat is not None:
+        return f'POINT ({lon} {lat})'
+    else:
+        return None
+
 # Initialisation de la connexion et récupération des tweets existants
 conn = get_db_connection()
 cur = conn.cursor()
@@ -139,14 +148,6 @@ for source in sources:
             origin_wkt = None
             current_wkt = None
             destination_wkt = None
-
-            def to_geom(loc):
-                lon = loc.get("longitude")
-                lat = loc.get("latitude")
-                if lon is not None and lat is not None:
-                    return f'POINT ({lon} {lat})'
-                else:
-                    return None
 
             if isinstance(origin, dict):
                 origin_wkt = to_geom(origin)
