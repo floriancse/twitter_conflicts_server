@@ -254,7 +254,7 @@ def get_tweets(
                         'geometry', ST_AsGeoJSON(t.geom)::JSON,
                         'properties', JSON_BUILD_OBJECT(
                             'id',               t.tweet_id,
-                            'url',              t.url,
+                            'url',              t.tweet_url,
                             'username',         t.username,
                             'created_at',   t.created_at,
                             'text',             t.text,
