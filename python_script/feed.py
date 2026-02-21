@@ -106,75 +106,76 @@ for source in sources:
 
         events = llm_to_geocode.get("events", [])
 
-        # Traitement du premier événement détecté
-        event = events[0]   
+        if events:
+            # Traitement du premier événement détecté
+            event = events[0]   
 
-        # Extraction des métadonnées de l'événement
-        lat = event.get("latitude")
-        long = event.get("longitude")
-        location = event.get("main_location")
-        strategic_importance = int(event.get("strategic_importance"))
-        typology = event.get("typology")
-        event_summary = event.get("event_summary")
+            # Extraction des métadonnées de l'événement
+            lat = event.get("latitude")
+            long = event.get("longitude")
+            location = event.get("main_location")
+            strategic_importance = int(event.get("strategic_importance"))
+            typology = event.get("typology")
+            event_summary = event.get("event_summary")
 
-        # Construction de la géométrie PostGIS (format WKT)
-        if lat is not None and long is not None:
-            geom_wkt = f"POINT ({long} {lat})"
-        else:
-            geom_wkt = None
+            # Construction de la géométrie PostGIS (format WKT)
+            if lat is not None and long is not None:
+                geom_wkt = f"POINT ({long} {lat})"
+            else:
+                geom_wkt = None
 
-        # Conversion de la confiance en français
-        tweet_accuracy = accuracy_table[event["confidence"]]
+            # Conversion de la confiance en français
+            tweet_accuracy = accuracy_table[event["confidence"]]
+            
+            # Insertion du tweet avec toutes ses métadonnées géospatiales
+            cur.execute("""
+            INSERT INTO public.TWEETS (tweet_id, date_published, url, author, body, accuracy, importance, typology, summary, GEOM) 
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, CASE WHEN %s IS NOT NULL THEN ST_GeomFromText(%s, 4326) ELSE NULL END) """, 
+            (item["id"], item["date"], item["link"], item["author"], item["title"], tweet_accuracy, strategic_importance, typology, event_summary, geom_wkt, geom_wkt))
+            conn.commit()
+
+            for img in item["images"]:
+                cur.execute("""
+                INSERT INTO public.tweets_image (tweet_id, image_url) 
+                VALUES (%s, %s)
+                """, (item["id"], img))
+                conn.commit()
         
-        # Insertion du tweet avec toutes ses métadonnées géospatiales
-        cur.execute("""
-        INSERT INTO public.TWEETS (tweet_id, date_published, url, author, body, accuracy, importance, typology, summary, GEOM) 
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, CASE WHEN %s IS NOT NULL THEN ST_GeomFromText(%s, 4326) ELSE NULL END) """, 
-        (item["id"], item["date"], item["link"], item["author"], item["title"], tweet_accuracy, strategic_importance, typology, event_summary, geom_wkt, geom_wkt))
-        conn.commit()
+            if typology == "MOVE":
+                origin = event.get("origin", {})
+                current = event.get("current", {})
+                destination = event.get("destination", {})
 
-        for img in item["images"]:
-            cur.execute("""
-            INSERT INTO public.tweet_image (tweet_id, image_url) 
-            VALUES (%s, %s)
-            """, (item["id"], img))
-            conn.commit()
-    
-        if typology == "MOVE":
-            origin = event.get("origin", {})
-            current = event.get("current", {})
-            destination = event.get("destination", {})
+                origin_wkt = None
+                current_wkt = None
+                destination_wkt = None
 
-            origin_wkt = None
-            current_wkt = None
-            destination_wkt = None
+                if isinstance(origin, dict):
+                    origin_wkt = to_geom(origin)
+                    
+                if isinstance(current, dict):
+                    current_wkt =  to_geom(current)
+                    
+                if isinstance(destination, dict):
+                    destination_wkt =  to_geom(destination)
 
-            if isinstance(origin, dict):
-                origin_wkt = to_geom(origin)
-                
-            if isinstance(current, dict):
-                current_wkt =  to_geom(current)
-                
-            if isinstance(destination, dict):
-                destination_wkt =  to_geom(destination)
-
-            cur.execute("""
-                INSERT INTO public.TWEET_MOVE 
-                    (tweet_id, origin, current_location, destination)
-                VALUES (
-                    %s,
-                    CASE WHEN %s IS NOT NULL THEN ST_GeomFromText(%s, 4326) ELSE NULL END,
-                    CASE WHEN %s IS NOT NULL THEN ST_GeomFromText(%s, 4326) ELSE NULL END,
-                    CASE WHEN %s IS NOT NULL THEN ST_GeomFromText(%s, 4326) ELSE NULL END
-                )
-                ON CONFLICT (tweet_id) DO NOTHING
-            """, (
-                item["id"],
-                origin_wkt,      origin_wkt,
-                current_wkt,     current_wkt,
-                destination_wkt, destination_wkt
-            ))
-            conn.commit()
+                cur.execute("""
+                    INSERT INTO public.TWEET_MOVES 
+                        (tweet_id, origin, current_location, destination)
+                    VALUES (
+                        %s,
+                        CASE WHEN %s IS NOT NULL THEN ST_GeomFromText(%s, 4326) ELSE NULL END,
+                        CASE WHEN %s IS NOT NULL THEN ST_GeomFromText(%s, 4326) ELSE NULL END,
+                        CASE WHEN %s IS NOT NULL THEN ST_GeomFromText(%s, 4326) ELSE NULL END
+                    )
+                    ON CONFLICT (tweet_id) DO NOTHING
+                """, (
+                    item["id"],
+                    origin_wkt,      origin_wkt,
+                    current_wkt,     current_wkt,
+                    destination_wkt, destination_wkt
+                ))
+                conn.commit()
 
 cur.execute("REFRESH MATERIALIZED VIEW tension_index_mv;")
 conn.commit()

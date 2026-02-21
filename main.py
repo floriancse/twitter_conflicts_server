@@ -265,7 +265,7 @@ def get_tweets(
                             'images', COALESCE(
                                 (
                                     SELECT JSON_AGG(ti.image_url ORDER BY ti.image_url)
-                                    FROM public.tweet_image ti
+                                    FROM public.tweets_image ti
                                     WHERE ti.tweet_id = t.tweet_id
                                 ),
                                 '[]'::JSON

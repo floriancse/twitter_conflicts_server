@@ -106,7 +106,7 @@ def extract_events_and_geoloc(tweet_text):
     3. TYPOLOGY:
       - MIL: Attack, bombing, strike, shooting, combat, military explosion
       - POL: Political declaration, official announcement, defense budget, military law, strategic intention
-      - MOVE: Naval/air deployment, patrol, tactical repositioning, military ship arrival/departure, surveillance flight. For MOVE, extract additional locations if explicitly mentioned: origin (starting point/base), current (transit point/current position), destination (end point/target area). Use the same geolocation rules as above for each.
+      - MOVE: Naval/air deployment, military ship arrival/departure, surveillance flight. For MOVE, extract additional locations if explicitly mentioned: origin (starting point/base), current (transit point/current position), destination (end point/target area). Use the same geolocation rules as above for each.
       - OTHER: Everything else (civilian seizure, non-military incident, accident)
 
     4. GEOLOCATION OF POLITICAL EVENTS (POL):
