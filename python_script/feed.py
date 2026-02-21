@@ -129,7 +129,7 @@ for source in sources:
             
             # Insertion du tweet avec toutes ses métadonnées géospatiales
             cur.execute("""
-            INSERT INTO public.TWEETS (tweet_id, date_published, url, author, body, accuracy, importance, typology, summary, GEOM) 
+            INSERT INTO public.TWEETS (tweet_id, created_at, url, username, text, location_accuracy, importance_score, conflict_typology, summary_text, GEOM) 
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, CASE WHEN %s IS NOT NULL THEN ST_GeomFromText(%s, 4326) ELSE NULL END) """, 
             (item["id"], item["date"], item["link"], item["author"], item["title"], tweet_accuracy, strategic_importance, typology, event_summary, geom_wkt, geom_wkt))
             conn.commit()

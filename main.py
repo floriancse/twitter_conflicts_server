@@ -7,8 +7,8 @@ via plusieurs endpoints permettant la visualisation cartographique et l'analyse.
 
 Endpoints principaux :
 - /api/twitter_conflicts/tweets.geojson : Tweets géolocalisés (format GeoJSON)
-- /api/twitter_conflicts/authors : Liste des auteurs actifs
-- /api/twitter_conflicts/important_tweets : Événements stratégiques (importance ≥ 4)
+- /api/twitter_conflicts/usernames : Liste des auteurs actifs
+- /api/twitter_conflicts/important_tweets : Événements stratégiques (importance_score ≥ 4)
 - /api/twitter_conflicts/random_tweets : Échantillon de tweets non géolocalisés
 - /api/twitter_conflicts/disputed_areas.geojson : Zones de conflit (polygones)
 
@@ -165,8 +165,8 @@ def get_world_areas():
     )
 
 
-@app.get("/api/twitter_conflicts/authors")
-def get_authors(
+@app.get("/api/twitter_conflicts/usernames")
+def get_usernames(
     start_date: datetime = Query(..., description="Date de début (ISO 8601, ex: 2026-02-14T00:00:00Z)"),
     end_date: datetime = Query(..., description="Date de fin (ISO 8601, ex: 2026-02-15T23:59:59Z)")
 ):
@@ -178,25 +178,25 @@ def get_authors(
         end_date (datetime): Date de fin (ISO 8601 avec timezone) - OBLIGATOIRE
         
     Returns:
-        dict: {"authors": ["@author1", "@author2", ...]}
+        dict: {"usernames": ["@username1", "@username2", ...]}
     """
     with get_db() as conn:
         cur = conn.cursor()
 
         cur.execute(
             """
-            SELECT DISTINCT author
+            SELECT DISTINCT username
             FROM public.tweets
-            WHERE date_published >= %s AND date_published <= %s
-            ORDER BY author;
+            WHERE created_at >= %s AND created_at <= %s
+            ORDER BY username;
             """,
             (start_date, end_date)
         )
 
-        authors = [row[0] for row in cur.fetchall()]
+        usernames = [row[0] for row in cur.fetchall()]
         cur.close()
 
-    return {"authors": authors}
+    return {"usernames": usernames}
 
 
 @app.get("/api/twitter_conflicts/tweets.geojson")
@@ -204,7 +204,7 @@ def get_tweets(
     start_date: datetime = Query(..., description="Date de début (ISO 8601, ex: 2026-02-14T00:00:00Z)"),
     end_date: datetime = Query(..., description="Date de fin (ISO 8601, ex: 2026-02-15T23:59:59Z)"),
     q: Optional[str] = None,
-    authors: Optional[str] = None,
+    usernames: Optional[str] = None,
     area: Optional[str] = None,         
     format: str = "geojson",                  
     sort: str = "date_desc",                
@@ -218,25 +218,25 @@ def get_tweets(
         start_date (datetime): Date de début - OBLIGATOIRE
         end_date (datetime): Date de fin - OBLIGATOIRE
         q (str, optional): Recherche textuelle
-        authors (str, optional): Liste d'auteurs séparés par virgules
+        usernames (str, optional): Liste d'auteurs séparés par virgules
         area (str, optional): Nom de la zone géographique
         
     Returns:
         Response: GeoJSON FeatureCollection
     """
-    conditions = ["date_published >= %s AND date_published <= %s"]
+    conditions = ["created_at >= %s AND created_at <= %s"]
     params = [start_date, end_date]
 
     if q:
-        conditions.append("(body ILIKE %s OR author ILIKE %s)")
+        conditions.append("(text ILIKE %s OR username ILIKE %s)")
         params.extend([f"%{q}%", f"%{q}%"])
 
-    if authors:
-        author_list = [a.strip() for a in authors.split(',') if a.strip()]
-        if author_list:
-            placeholders = ','.join(['%s'] * len(author_list))
-            conditions.append(f"author IN ({placeholders})")
-            params.extend(author_list)
+    if usernames:
+        username_list = [a.strip() for a in usernames.split(',') if a.strip()]
+        if username_list:
+            placeholders = ','.join(['%s'] * len(username_list))
+            conditions.append(f"username IN ({placeholders})")
+            params.extend(username_list)
 
     if area:
         conditions.append("""wa."NAME_FR" = %s""")
@@ -255,12 +255,12 @@ def get_tweets(
                         'properties', JSON_BUILD_OBJECT(
                             'id',               t.id,
                             'url',              t.url,
-                            'author',           t.author,
-                            'date_published',   t.date_published,
-                            'body',             t.body,
-                            'accuracy',         t.accuracy,
-                            'importance',       t.importance,
-                            'typology',         t.typology,
+                            'username',         t.username,
+                            'created_at',   t.created_at,
+                            'text',             t.text,
+                            'location_accuracy',         t.location_accuracy,
+                            'importance_score',       t.importance_score,
+                            'conflict_typology',         t.conflict_typology,
                             'area_name',        wa."NAME_FR",
                             'images', COALESCE(
                                 (
