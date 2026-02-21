@@ -136,7 +136,7 @@ for source in sources:
 
             for img in item["images"]:
                 cur.execute("""
-                INSERT INTO public.tweets_image (tweet_id, image_url) 
+                INSERT INTO public.tweet_images (tweet_id, image_url) 
                 VALUES (%s, %s)
                 """, (item["id"], img))
                 conn.commit()
@@ -160,7 +160,7 @@ for source in sources:
                     destination_wkt =  to_geom(destination)
 
                 cur.execute("""
-                    INSERT INTO public.TWEET_MOVES 
+                    INSERT INTO public.tweet_movements 
                         (tweet_id, origin, current_location, destination)
                     VALUES (
                         %s,

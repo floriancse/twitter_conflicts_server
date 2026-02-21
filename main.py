@@ -10,7 +10,7 @@ Endpoints principaux :
 - /api/twitter_conflicts/authors : Liste des auteurs actifs
 - /api/twitter_conflicts/important_tweets : Événements stratégiques (importance ≥ 4)
 - /api/twitter_conflicts/random_tweets : Échantillon de tweets non géolocalisés
-- /api/twitter_conflicts/disputed_area.geojson : Zones de conflit (polygones)
+- /api/twitter_conflicts/disputed_areas.geojson : Zones de conflit (polygones)
 
 Configuration :
 - Base de données : PostgreSQL avec extension PostGIS
@@ -92,8 +92,8 @@ app.add_middleware(
 )
 
 
-@app.get("/api/twitter_conflicts/disputed_area.geojson")
-def get_disputed_area():
+@app.get("/api/twitter_conflicts/disputed_areas.geojson")
+def get_disputed_areas():
     """
     Retourne les zones de conflit/contestées en format GeoJSON.
     
@@ -121,7 +121,7 @@ def get_disputed_area():
                     )
                 )
             )
-            FROM public.disputed_area;
+            FROM public.disputed_areas;
         """
         )
 
@@ -265,7 +265,7 @@ def get_tweets(
                             'images', COALESCE(
                                 (
                                     SELECT JSON_AGG(ti.image_url ORDER BY ti.image_url)
-                                    FROM public.tweets_image ti
+                                    FROM public.tweet_images ti
                                     WHERE ti.tweet_id = t.tweet_id
                                 ),
                                 '[]'::JSON
