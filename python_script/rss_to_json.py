@@ -22,6 +22,7 @@ import re
 import sys
 import urllib.request
 from urllib.parse import unquote
+from yt_dlp import YoutubeDL
 
 def extract_images(text):
     """

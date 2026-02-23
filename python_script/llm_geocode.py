@@ -1,388 +1,150 @@
 """
-Module d'extraction d'événements géopolitiques via LLM (version simplifiée)
-===========================================================================
-
-Prompt allégé pour éviter les hallucinations géographiques.
-Focus sur l'extraction d'événements concrets uniquement.
+Module d'extraction d'événements géopolitiques via LLM (Groq)
+=============================================================
 """
 
-import ollama
 import json
+import os
+from groq import Groq
+from dotenv import load_dotenv
 
-def extract_events_and_geoloc(tweet_text):
+load_dotenv()
+
+client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+
+SYSTEM_PROMPT = """You are an OSINT analyst. Respond ONLY in English. ALL fields must be in English.
+Extract ONLY concrete physical events from tweets.
+
+1. WHAT TO EXTRACT:
+  EXTRACT: Attacks, ship seizures, military movements, incidents, violence, political declarations.
+  SKIP: Purely informational tweets without events.
+
+2. GEOLOCATION RULES:
+
+  PRECISION HIERARCHY: installation/base/port > city > region > country > sea area > null
+  Never use a higher level if a more specific one is explicitly mentioned.
+
+  CRITICAL RULES:
+  - Use ONLY locations explicitly named in the tweet.
+  - Do NOT infer location from actor names (e.g. "Islamic State" ≠ Middle East).
+  - "en route to X" or "heading to X" does NOT make X the event location.
+
+  A) MARITIME: Use sea/ocean/strait/gulf name in English (e.g. "Caribbean Sea", "Strait of Hormuz").
+     → location_type: "inferred", confidence: "medium", approximate centroid lat/lon.
+     
+  B) LAND - EXPLICIT (cities, bases, installations explicitly named):
+     → location_name format (hierarchical, comma-separated, most specific first):
+       - City/base/installation: "City, Region, Country" (e.g. "Volna, Krasnodar, Russia")
+       - If no region known: "City, Country" (e.g. "Sevastopol, Ukraine")
+       - Country only if nothing more specific: "Russia"
+     → Disputed territories: use the internationally recognized country name.
+       e.g. Sevastopol, Crimea → "Sevastopol, Ukraine" (not "Russia")
+     → location_type: "explicit", confidence: "high", precise lat/lon.
+
+  C) LAND - VAGUE (borders, remote areas, regions):
+     → location_name format: "Descriptor, Country" or "Descriptor, Country1-Country2"
+       e.g. "Eastern Ukraine" → "Eastern Ukraine, Ukraine"
+            Iran-Pakistan border → "Saravan Border Area, Iran-Pakistan"
+     → location_type: "inferred", confidence: "medium", approximate centroid lat/lon.
+
+  D) POLITICAL EVENTS: Geolocate at the capital of the country making the declaration.
+     → location_type: "explicit", confidence: "high", precise lat/lon.
+
+  E) COORDINATE PRECISION (mandatory):
+     - Always 3 decimal places.
+     - Precise known locations: use accurate coordinates.
+     - Approximate locations: use plausible centroid.
+     Reference coordinates:
+       "Kyiv, Ukraine"          → 50.450, 30.523
+       "Taipei, Taiwan"         → 25.047, 121.543
+       "RAF Mildenhall, UK"     → 52.361, 0.486
+       "Pyongyang, North Korea" → 39.019, 125.754
+       "Langley AFB, Virginia"  → 37.082, -76.360
+       "Little Creek, Virginia" → 36.922, -76.181
+       "Atlantic Ocean"         → 20.000, -35.000
+       "South China Sea"        → 15.000, 114.000
+       "Strait of Hormuz"       → 26.500, 56.500
+       "Caribbean Sea"          → 15.000, -75.000
+       "Eastern Ukraine"        → 48.500, 37.500
+       "Eastern Poland"         → 52.000, 23.500
+       "Iran-Pakistan border"   → 27.500, 62.000
+       "Sahel region"           → 15.000, 5.000
+
+  F) UNKNOWN LOCATION: If location cannot be determined:
+     → location_name: null, location_type: "unknown", confidence: "low", lat: null, lon: null
+
+3. TYPOLOGY:
+  MIL: Attack, bombing, strike, shooting, combat, explosion
+  POL: Political declaration, official announcement, defense budget, strategic intention
+  MOVE: Naval/air deployment, ship/aircraft arrival or departure, surveillance flight
+  OTHER: Civilian seizure, non-military incident, accident
+
+4. IMPORTANCE (1-5, be conservative):
+  1: Minor local incident, routine movement, routine declaration
+  2: Standard tactical event (patrol, small strike, minor announcement)
+  3: Notable event (infrastructure attack, multi-unit deployment, significant budget)
+  4: Major strategic escalation (massive attack, doctrine change, diplomatic rupture)
+  5: Exceptional global crisis (war declared, nuclear strike, regional collapse)
+
+5. OUTPUT FORMAT — ALL FIELDS MANDATORY:
+{
+  "events": [
+    {
+      "summary_text": "concise 1-sentence analytical summary, not a copy of the tweet",
+      "typology": "MIL or POL or MOVE or OTHER",
+      "strategic_importance": 1-5,
+      "location_name": "English string or null",
+      "location_type": "explicit or inferred or unknown",
+      "confidence": "high or medium or low",
+      "lat": null or float with exactly 3 decimal places,
+      "lon": null or float with exactly 3 decimal places
+    }
+  ]
+}
+
+If no extractable event → return {"events": []}
+location_name must ALWAYS be in English (Latin script only).
+lat/lon must be null ONLY when location is truly unknown."""
+
+
+def extract_events_and_geoloc(tweet_text: str) -> dict | None:
     """
-    Analyse un tweet OSINT et extrait les événements géolocalisés via LLM.
-    
+    Analyse un tweet OSINT et extrait les événements géolocalisés via Groq.
+
     Args:
         tweet_text (str): Le texte du tweet à analyser
-        
+
     Returns:
-        dict: Dictionnaire JSON contenant la liste des événements extraits
+        dict | None: Dictionnaire JSON contenant la liste des événements, ou None en cas d'erreur
     """
-    
-    prompt = f"""You are an OSINT analyst. Extract ONLY concrete physical events from this tweet.
 
-    1. WHAT TO EXTRACT:
-      ✓ Attacks (drone, missile, artillery)
-      ✓ Ship seizures/boardings
-      ✓ Military movements: naval/air deployments, patrols, tactical repositioning
-      ✓ Incidents (collisions, fires, explosions)
-      ✓ Violence (shootings, clashes)
-      ✓ Political declarations (official announcements, defense budgets, laws, strategic intentions)
-      
-      ✗ DO NOT extract: purely informational tweets without events
+    models_to_try = [
+        "llama-3.3-70b-versatile",
+        "qwen/qwen3-32b",              
+    ]
 
-    2. GEOLOCATION (strict rules by type):
+    for model in models_to_try:
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": f"Analyze this tweet and return a JSON object:\n{tweet_text}"}
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.0,
+                max_tokens=1024,
+                top_p=1.0,
+            )
 
-      CRITICAL: Use ONLY locations explicitly named in the tweet
-      Do NOT infer location from actor names (e.g., "Islamic State" does not mean Middle East)
+            raw_content = response.choices[0].message.content.strip()
+            if not raw_content:
+                continue
 
-      A) MARITIME EVENTS
-          If tweet contains: "sea", "ocean", "waters", "strait", "gulf" + sea/ocean name
-          → Place point AT SEA according to this table:
-          
-          Caribbean Sea / Caribbean           → 15.0, -75.0
-          South China Sea                     → 10.0, 115.0
-          East China Sea                      → 30.0, 125.0
-          Black Sea                           → 43.0, 34.0
-          Red Sea                             → 18.0, 38.0
-          Mediterranean Sea / Mediterranean   → 35.0, 18.0
-          Persian Gulf / Arabian Gulf         → 26.0, 52.0
-          Gulf of Oman                        → 25.0, 58.0    
-          Strait of Hormuz / Hormuz           → 26.6, 56.5    
-          Gulf of Mexico                      → 25.0, -90.0
-          Baltic Sea                          → 58.0, 20.0
-          Pacific Ocean                       → 0.0, -140.0
-          Atlantic Ocean                      → 25.0, -40.0
-          Indian Ocean                        → -10.0, 75.0
-          Japanese waters / Japanese maritime → 34.5, 138.5
-          Strait of Gibraltar                 → 36.0, -5.5
-          
-          → location_type: "inferred", confidence: "medium"
+            return json.loads(raw_content)
 
-      B) SHIPS IN MOVEMENT (arriving/departing/coming into/leaving)
-          → Place point SLIGHTLY INLAND from the port to ensure polygon intersection:
-          
-          Little Creek, Virginia         → 36.92, -76.02  # Décalé vers terre
-          Sydney, Australia              → -33.87, 151.21  # Décalé vers terre
-          Norfolk, USA                   → 36.92, -76.08   # Décalé vers terre
-          Portsmouth, UK                 → 50.82, -1.08    # Décalé vers terre
-          
-          → location_type: "inferred", confidence: "medium"
+        except Exception as e:
+            print(f"[INFO] Model {model} failed: {str(e)} → trying next model")
+            continue
 
-      C) LAND LOCATIONS (cities, bases, regions)
-          → Use ONLY the geographic locations EXPLICITLY mentioned in the tweet
-          → Do NOT infer locations based on actors/groups mentioned
-          → If a city/region is mentioned, use your geographic knowledge:
-      
-          Examples:
-          Volna, Krasnodar, Russia       → 45.35, 37.15
-          Odesa, Ukraine                 → 46.48, 30.73
-          Maputo, Mozambique             → -25.97, 32.58
-          Pemba, Mozambique              → -12.97, 40.52
-          RAF Mildenhall, UK             → 52.36, 0.49
-          RAF Lakenheath, UK             → 52.41, 0.56
-          Muwaffaq Salti AB, Jordan      → 31.97, 36.26
-          Trapani, Italy                 → 38.02, 12.50
-          Eastern Poland (zone)          → 51.0, 23.0
-          Tehran, Iran                   → 35.70, 51.42
-          Western Ukraine (zone)         → 49.5, 24.0
-          Central Ukraine (zone)         → 49.0, 31.5
-          Eastern Ukraine / Donbas       → 48.0, 38.0
-          Zaporizhzhia region, Ukraine   → 47.5, 35.5
-          Kherson region, Ukraine        → 46.5, 32.5
-          Kharkiv, Ukraine               → 49.99, 36.23
-          Naval Air Station Sigonella, Italy → 37.41, 14.92
-          Lajes Airfield, Azores         → 38.76, -27.09
-          Langley Air Force Base, VA     → 37.08, -76.36
-
-          
-          → location_type: "explicit", confidence: "high"
-
-      D) COORDINATES PROVIDED IN TWEET
-          If tweet already contains GPS coordinates (e.g., "35.733017, 51.494024")
-          → Use them directly, confidence: "high"
-
-    3. TYPOLOGY:
-      - MIL: Attack, bombing, strike, shooting, combat, military explosion
-      - POL: Political declaration, official announcement, defense budget, military law, strategic intention
-      - MOVE: Naval/air deployment, military ship arrival/departure, surveillance flight. For MOVE, extract additional locations if explicitly mentioned: origin (starting point/base), current (transit point/current position), destination (end point/target area). Use the same geolocation rules as above for each.
-      - OTHER: Everything else (civilian seizure, non-military incident, accident)
-
-    4. GEOLOCATION OF POLITICAL EVENTS (POL):
-      → Geolocate at CAPITAL of country concerned by declaration
-      → If multiple countries mentioned, choose country from which declaration originates
-      
-      Main capitals:
-      Taiwan (Taipei)           → 25.03, 121.56
-      Ukraine (Kyiv)            → 50.45, 30.52
-      Russia (Moscow)           → 55.75, 37.62
-      USA (Washington DC)       → 38.90, -77.04
-      China (Beijing)           → 39.90, 116.40
-      Iran (Tehran)             → 35.70, 51.42
-      Israel (Jerusalem)        → 31.78, 35.22
-      UK (London)               → 51.51, -0.13
-      France (Paris)            → 48.86, 2.35
-      Germany (Berlin)          → 52.52, 13.40
-      Japan (Tokyo)             → 35.68, 139.65
-      South Korea (Seoul)       → 37.57, 126.98
-      North Korea (Pyongyang)   → 39.03, 125.75
-      
-      → location_type: "explicit", confidence: "high"
-
-    5. IMPORTANCE (1-5) - BE CONSERVATIVE:
-      1: Minor local incident, routine ship/aircraft movement, routine declaration
-      2: Standard tactical event (patrol, small isolated strike, minor political announcement)
-      3: Notable operational event (infrastructure attack, multi-unit deployment, significant defense budget)
-      4: Major strategic escalation (massive coordinated attack, military doctrine change, diplomatic rupture)
-      5: Exceptional global crisis (war declared, nuclear strike, regional collapse)
-      
-      By default, start at 1 and increase only if event clearly has strategic impact.
-
-    JSON FORMAT (strict) - ALL FIELDS ARE MANDATORY - Only output ONE JSON about the main event :
-    {{
-      "events": [
-        {{
-          "event_summary": "short factual description in English",
-          "typology": "MIL or POL or MOVE or OTHER",
-          "strategic_importance": 1-5,
-          "main_location": "location name or 'Unknown' if not localizable",
-          "location_type": "explicit or inferred or unknown",
-          "latitude": decimal number or null,
-          "longitude": decimal number or null,
-          "confidence": "high or medium or low",
-          "origin": {{ "location": "name or null", "location_type": "explicit or inferred or unknown or null", "latitude": decimal or null, "longitude": decimal or null, "confidence": "high or medium or low or null" }},
-          "current": {{ "location": "name or null", "location_type": "explicit or inferred or unknown or null", "latitude": decimal or null, "longitude": decimal or null, "confidence": "high or medium or low or null" }},
-          "destination": {{ "location": "name or null", "location_type": "explicit or inferred or unknown or null", "latitude": decimal or null, "longitude": decimal or null, "confidence": "high or medium or low or null" }}
-        }}
-      ]
-    }}
-
-    ⚠️ The "confidence" field is MANDATORY in each event.
-    ⚠️ For typology != "MOVE", set origin/current/destination to null values (e.g., "location": null, etc.).
-    ⚠️ CRITICAL RULE: If you cannot reliably locate the event or sub-locations:
-      - main_location: "Unknown"
-      - location_type: "unknown"
-      - latitude: null
-      - longitude: null
-      - confidence: "low"
-      - Same for origin/current/destination if not extractable.
-    ⚠️ NEVER use coordinates 0.0, 0.0 (Gulf of Guinea) as default!
-
-    If no event → return {{"events":[]}}
-
-    EXAMPLES:
-
-    Tweet: "US special forces boarded and seized the Veronica III oil tanker in the Caribbean Sea."
-    {{
-      "events": [{{
-        "event_summary": "US special forces seized oil tanker Veronica III in Caribbean Sea",
-        "typology": "OTHER",
-        "strategic_importance": 3,
-        "main_location": "Caribbean Sea",
-        "location_type": "inferred",
-        "latitude": 15.0,
-        "longitude": -75.0,
-        "confidence": "medium",
-        "origin": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
-        "current": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
-        "destination": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }}
-      }}]
-    }}
-
-    Tweet: "Taiwan will strengthen defence efforts, President Lai said. He is trying to pass a 40 billion defence bill."
-    {{
-      "events": [{{
-        "event_summary": "President Lai announces defense strengthening with 40 billion defense bill under discussion",
-        "typology": "POL",
-        "strategic_importance": 3,
-        "main_location": "Taipei, Taiwan",
-        "location_type": "explicit",
-        "latitude": 25.03,
-        "longitude": 121.56,
-        "confidence": "high",
-        "origin": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
-        "current": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
-        "destination": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }}
-      }}]
-    }}
-
-    Tweet: "At least five KC-135R/T Stratotanker departing from RAF Mildenhall heading south, supporting six F-35A from Vermont ANG flying to Jordan."
-    {{
-      "events": [{{
-        "event_summary": "Deployment of 5 KC-135 and 6 F-35A from RAF Mildenhall to Jordan",
-        "typology": "MOVE",
-        "strategic_importance": 2,
-        "main_location": "RAF Mildenhall to Jordan deployment",
-        "location_type": "explicit",
-        "latitude": 52.36,
-        "longitude": 0.49,
-        "confidence": "high",
-        "origin": {{ "location": "RAF Mildenhall, UK", "location_type": "explicit", "latitude": 52.36, "longitude": 0.49, "confidence": "high" }},
-        "current": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
-        "destination": {{ "location": "Jordan", "location_type": "explicit", "latitude": 31.97, "longitude": 36.26, "confidence": "high" }}
-      }}]
-    }}
-
-    Tweet: "Future USNS Point Loma (EPF-15) expeditionary fast transport coming into Little Creek, Virginia - February 14, 2026"
-    {{
-      "events": [{{
-        "event_summary": "Expeditionary fast transport USNS Point Loma arriving at Little Creek",
-        "typology": "MOVE",
-        "strategic_importance": 1,
-        "main_location": "Little Creek waters, Virginia",
-        "location_type": "inferred",
-        "latitude": 36.90,
-        "longitude": -76.00,
-        "confidence": "medium",
-        "origin": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
-        "current": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
-        "destination": {{ "location": "Little Creek, Virginia", "location_type": "inferred", "latitude": 36.92, "longitude": -76.02, "confidence": "medium" }}
-      }}]
-    }}
-
-    Tweet: "NATO E-3A Sentry AEW&C Aircraft and Airbus A330 MRTT supporting F-35A are airborne over Eastern Poland."
-    {{
-      "events": [{{
-        "event_summary": "NATO E-3A and A330 MRTT patrol supporting F-35A over Eastern Poland",
-        "typology": "MOVE",
-        "strategic_importance": 2,
-        "main_location": "Eastern Poland",
-        "location_type": "inferred",
-        "latitude": 51.0,
-        "longitude": 23.0,
-        "confidence": "medium",
-        "origin": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
-        "current": {{ "location": "Eastern Poland", "location_type": "inferred", "latitude": 51.0, "longitude": 23.0, "confidence": "medium" }},
-        "destination": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }}
-      }}]
-    }}
-
-    Tweet: "Emergency services in Krasnodar said firefighters are battling a blaze in Volna village after a drone attack."
-    {{
-      "events": [{{
-        "event_summary": "Drone attack on Volna village, fire in progress",
-        "typology": "MIL",
-        "strategic_importance": 2,
-        "main_location": "Volna, Krasnodar region, Russia",
-        "location_type": "explicit",
-        "latitude": 45.35,
-        "longitude": 37.17,
-        "confidence": "high",
-        "origin": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
-        "current": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
-        "destination": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }}
-      }}]
-    }}
-
-    Tweet: "CS Decisive cable-laying vessel coming into Sydney, Australia - February 13, 2026"
-    {{
-      "events": [{{
-        "event_summary": "Cable-laying vessel CS Decisive arriving at Sydney",
-        "typology": "OTHER",
-        "strategic_importance": 1,
-        "main_location": "Sydney waters, Australia",
-        "location_type": "inferred",
-        "latitude": -33.85,
-        "longitude": 151.25,
-        "confidence": "medium",
-        "origin": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
-        "current": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
-        "destination": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }}
-      }}]
-    }}
-
-    Tweet: "It's likely that the first intercepted projectile was an RM-48U. The second interception appears to be a genuine Iskander-M missile."
-    {{
-      "events": [{{
-        "event_summary": "Interception of two missiles: presumed RM-48U and confirmed Iskander-M",
-        "typology": "MIL",
-        "strategic_importance": 2,
-        "main_location": "Unknown",
-        "location_type": "unknown",
-        "latitude": null,
-        "longitude": null,
-        "confidence": "low",
-        "origin": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
-        "current": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }},
-        "destination": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }}
-      }}]
-    }}
-
-    Tweet: "A U. S. Navy P-8A ""Poseidon"" operating out of Naval Air Station Sigonella, Italy has descended just east of the Strait of Gibraltar as USS Gerald R. Ford carrier strike group enters the Mediterranean Sea for the second time on this deployment."
-    {{
-      "events": [{{
-        "event_summary": "US Navy P-8A Poseidon from Sigonella descending east of Strait of Gibraltar as USS Gerald R. Ford enters Mediterranean",
-        "typology": "MOVE",
-        "strategic_importance": 2,
-        "main_location": "Strait of Gibraltar to Mediterranean",
-        "location_type": "inferred",
-        "latitude": 36.0,
-        "longitude": -5.5,
-        "confidence": "medium",
-        "origin": {{ "location": "Naval Air Station Sigonella, Italy", "location_type": "explicit", "latitude": 37.41, "longitude": 14.92, "confidence": "high" }},
-        "current": {{ "location": "East of Strait of Gibraltar", "location_type": "inferred", "latitude": 36.0, "longitude": -5.0, "confidence": "medium" }},
-        "destination": {{ "location": "Mediterranean Sea", "location_type": "inferred", "latitude": 35.0, "longitude": 18.0, "confidence": "medium" }}
-      }}]
-    }}
-
-    Tweet: "Lajes Airfield in the Azores, a key mid-Atlantic rest stop, has become a major hub of activity as the US deploys assets to the Middle East in preparation for an Iran strike. Seen here, USAF tankers and transports fill the airfield’s apron."
-    {{
-      "events": [{{
-        "event_summary": "US deployment of tankers and transports via Lajes Airfield to Middle East",
-        "typology": "MOVE",
-        "strategic_importance": 3,
-        "main_location": "Lajes Airfield, Azores",
-        "location_type": "explicit",
-        "latitude": 38.76,
-        "longitude": -27.09,
-        "confidence": "high",
-        "origin": {{ "location": "USA", "location_type": "explicit", "latitude": 38.90, "longitude": -77.04, "confidence": "high" }},
-        "current": {{ "location": "Lajes Airfield, Azores", "location_type": "explicit", "latitude": 38.76, "longitude": -27.09, "confidence": "high" }},
-        "destination": {{ "location": "Middle East", "location_type": "inferred", "latitude": 30.0, "longitude": 45.0, "confidence": "medium" }}
-      }}]
-    }}
-
-    Tweet: "A U.S. Air Force KC-46A ""Pegasus"" with call sign ROMA11 is on course for an Atlantic crossing, It is joined by six U.S. Air Force F-22 ""Raptors"" from the 1st Fighter Wing based at Langley Air Force Base, VA. This is the third attempt at a crossing with the previous two attempts being aborted due to issues with the tanker."
-    {{
-      "events": [{{
-        "event_summary": "USAF KC-46A and 6 F-22 Raptors from Langley AFB on Atlantic crossing",
-        "typology": "MOVE",
-        "strategic_importance": 2,
-        "main_location": "Atlantic Ocean crossing",
-        "location_type": "inferred",
-        "latitude": 25.0,
-        "longitude": -40.0,
-        "confidence": "medium",
-        "origin": {{ "location": "Langley Air Force Base, VA", "location_type": "explicit", "latitude": 37.08, "longitude": -76.36, "confidence": "high" }},
-        "current": {{ "location": "Atlantic crossing", "location_type": "inferred", "latitude": 25.0, "longitude": -40.0, "confidence": "medium" }},
-        "destination": {{ "location": null, "location_type": null, "latitude": null, "longitude": null, "confidence": null }}
-      }}]
-    }}
-
-    TWEET TO ANALYZE:
-    {{tweet_text}}
-    """   
-
-    try:
-        response = ollama.chat(
-            model='gpt-oss:20b',
-            messages=[{'role': 'user', 'content': prompt}],
-            format='json',
-            options={
-                'temperature': 0.0,
-                'num_ctx': 8192,
-                'top_p': 0.9,
-                'repeat_penalty': 1.1,
-            }
-        )
-        
-        raw_content = response['message']['content'].strip()
-        return json.loads(raw_content)
-
-    except json.JSONDecodeError as e:
-        print("JSON parse error:", e)
-        return None
-    except Exception as e:
-        print("Ollama error:", e)
-        return None
+    return None

@@ -29,7 +29,6 @@ from dotenv import load_dotenv
 from time import gmtime, strftime
 
 load_dotenv()
-
 # Configuration de la connexion à la base de données PostgreSQL
 DB_CONFIG = {
     "host": os.getenv("DB_HOST", "localhost"),           
@@ -51,15 +50,6 @@ def get_db_connection():
     )
     return conn
 
-
-def to_geom(loc):
-    lon = loc.get("longitude")
-    lat = loc.get("latitude")
-    if lon is not None and lat is not None:
-        return f'POINT ({lon} {lat})'
-    else:
-        return None
-
 # Initialisation de la connexion et récupération des tweets existants
 conn = get_db_connection()
 cur = conn.cursor()
@@ -68,13 +58,6 @@ tweet_in_db = [i[0] for i in cur.fetchall()]
 
 # Liste des sources OSINT à scraper
 sources = ["@GeoConfirmed", "@sentdefender","@OSINTWarfare","@Osinttechnical","@Conflict_Radar","@Globalsurv","@NOELreports"]
-
-# Mapping de la confiance LLM vers les valeurs françaises de la BDD
-accuracy_table = {
-    "high":"Haute",
-    "medium":"Moyenne",
-    "low":"Basse"
-}
 
 # Boucle principale : traitement de chaque source OSINT
 for source in sources:
@@ -100,82 +83,60 @@ for source in sources:
         # Extraction des événements et géolocalisation via LLM
         try:
             llm_to_geocode = extract_events_and_geoloc(desc)
+            time.sleep(30)
         except Exception as e:
             print("LLM error:", e)
             continue
 
+        if llm_to_geocode is None:
+            print(desc, item["link"])
+            continue
+
         events = llm_to_geocode.get("events", [])
 
-        if events:
-            # Traitement du premier événement détecté
-            event = events[0]   
-
-            # Extraction des métadonnées de l'événement
-            lat = event.get("latitude")
-            long = event.get("longitude")
-            location = event.get("main_location")
-            strategic_importance = int(event.get("strategic_importance"))
-            typology = event.get("typology")
-            event_summary = event.get("event_summary")
-
-            # Construction de la géométrie PostGIS (format WKT)
-            if lat is not None and long is not None:
-                geom_wkt = f"POINT ({long} {lat})"
-            else:
-                geom_wkt = None
-
-            # Conversion de la confiance en français
-            tweet_accuracy = accuracy_table[event["confidence"]]
-            
-            # Insertion du tweet avec toutes ses métadonnées géospatiales
-            cur.execute("""
-            INSERT INTO public.TWEETS (tweet_id, created_at, url, username, text, location_accuracy, importance_score, conflict_typology, summary_text, GEOM) 
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, CASE WHEN %s IS NOT NULL THEN ST_GeomFromText(%s, 4326) ELSE NULL END) """, 
-            (item["id"], item["date"], item["link"], item["author"], item["title"], tweet_accuracy, strategic_importance, typology, event_summary, geom_wkt, geom_wkt))
-            conn.commit()
-
-            for img in item["images"]:
+        if not events:
+            if len(desc) > 50:
                 cur.execute("""
-                INSERT INTO public.tweet_images (tweet_id, image_url) 
-                VALUES (%s, %s)
-                """, (item["id"], img))
+                INSERT INTO public.TWEETS (tweet_id, created_at, tweet_url, username, text) 
+                VALUES (%s, %s, %s, %s, %s)
+                """, (item["id"], item["date"], item["link"], item["author"], item["title"]))
                 conn.commit()
+            continue
+
+        # Traitement du premier événement détecté
+        event = events[0]   
+
+        # Extraction des métadonnées de l'événement
+        lat = event.get("lat")
+        lon = event.get("lon")
+        strategic_importance = int(event.get("strategic_importance"))
+        typology = event.get("typology")
+        summary_text = event.get("summary_text")
+        location_name = event.get("location_name")
+        location_accuracy = event.get("confidence")
+        # Construction de la géométrie PostGIS (format WKT)
+
+        if lat is not None and lon is not None:
+            geom_wkt = f"POINT ({lon} {lat})"        
+        else:
+            geom_wkt = None
         
-            if typology == "MOVE":
-                origin = event.get("origin", {})
-                current = event.get("current", {})
-                destination = event.get("destination", {})
+        print(location_name, geom_wkt, summary_text)
+        # Insertion du tweet avec toutes ses métadonnées géospatiales
+        cur.execute("""
+        INSERT INTO public.TWEETS (tweet_id, created_at, tweet_url, username, text, location_accuracy, importance_score, conflict_typology, summary_text, location_name, GEOM) 
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CASE WHEN %s IS NOT NULL THEN ST_GeomFromText(%s, 4326) ELSE NULL END) """, 
+        (item["id"], item["date"], item["link"], item["author"], item["title"], location_accuracy, strategic_importance, typology, summary_text, location_name, geom_wkt, geom_wkt))
+        conn.commit()
 
-                origin_wkt = None
-                current_wkt = None
-                destination_wkt = None
-
-                if isinstance(origin, dict):
-                    origin_wkt = to_geom(origin)
-                    
-                if isinstance(current, dict):
-                    current_wkt =  to_geom(current)
-                    
-                if isinstance(destination, dict):
-                    destination_wkt =  to_geom(destination)
-
-                cur.execute("""
-                    INSERT INTO public.tweet_movements 
-                        (tweet_id, origin, current_location, destination)
-                    VALUES (
-                        %s,
-                        CASE WHEN %s IS NOT NULL THEN ST_GeomFromText(%s, 4326) ELSE NULL END,
-                        CASE WHEN %s IS NOT NULL THEN ST_GeomFromText(%s, 4326) ELSE NULL END,
-                        CASE WHEN %s IS NOT NULL THEN ST_GeomFromText(%s, 4326) ELSE NULL END
-                    )
-                    ON CONFLICT (tweet_id) DO NOTHING
-                """, (
-                    item["id"],
-                    origin_wkt,      origin_wkt,
-                    current_wkt,     current_wkt,
-                    destination_wkt, destination_wkt
-                ))
-                conn.commit()
+        for img in item["images"]:
+            cur.execute("""
+            INSERT INTO public.tweet_images (tweet_id, image_url) 
+            VALUES (%s, %s)
+            """, (item["id"], img))
+            conn.commit()
+        
+        
 
 cur.execute("REFRESH MATERIALIZED VIEW tension_index_mv;")
 conn.commit()
