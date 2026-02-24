@@ -84,7 +84,6 @@ for source in sources:
         # Extraction des événements et géolocalisation via LLM
         try:
             llm_to_geocode = extract_events_and_geoloc(desc)
-            time.sleep(30)
         except Exception as e:
             print("LLM error:", e)
             continue
@@ -92,7 +91,7 @@ for source in sources:
         if llm_to_geocode is None:
             print(desc, item["link"])
             continue
-
+        
         events = llm_to_geocode.get("events", [])
 
         if not events:
@@ -141,7 +140,6 @@ for source in sources:
 cur.execute("REFRESH MATERIALIZED VIEW tension_index_mv;")
 conn.commit()
 
-model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 cur.execute("""
     SELECT tweet_id, summary_text, text, created_at, conflict_typology,
            ST_Y(geom::geometry) AS lat,
@@ -152,7 +150,7 @@ cur.execute("""
 """)
 
 rows = cur.fetchall()
-delete_dup_rows(rows, model)
+delete_dup_rows(rows, cur, conn)
 
 # Fermeture propre des connexions
 cur.close()

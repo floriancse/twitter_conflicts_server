@@ -15,7 +15,7 @@ def haversine(coord1, coord2):
     a = sin(dlat/2)**2 + cos(lat1)*cos(lat2)*sin(dlon/2)**2
     return R * 2 * atan2(sqrt(a), sqrt(1-a))
 
-def delete_dup_rows(rows):
+def delete_dup_rows(rows, cur, conn):
     if not rows:
         return
     ids        = [r[0] for r in rows]

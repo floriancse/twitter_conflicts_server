@@ -1,16 +1,15 @@
 """
-Module d'extraction d'événements géopolitiques via LLM (Groq)
+Module d'extraction d'événements géopolitiques via LLM (Ollama local)
 =============================================================
 """
 
 import json
-import os
-from groq import Groq
-from dotenv import load_dotenv
+from openai import OpenAI
 
-load_dotenv()
-
-client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+client = OpenAI(
+    base_url="http://localhost:11434/v1",
+    api_key="ollama",  
+)
 
 SYSTEM_PROMPT = """You are an OSINT analyst. Respond ONLY in English. ALL fields must be in English.
 Extract ONLY concrete physical events from tweets.
@@ -54,6 +53,9 @@ Extract ONLY concrete physical events from tweets.
      - Always 3 decimal places.
      - Precise known locations: use accurate coordinates.
      - Approximate locations: use plausible centroid.
+     - If exact coordinates are unknown, always prefer an approximate centroid over null.
+          e.g. "Kaleikino" (obscure Russian village) → use nearest known city coordinates.
+
      Reference coordinates:
        "Kyiv, Ukraine"          → 50.450, 30.523
        "Taipei, Taiwan"         → 25.047, 121.543
@@ -62,6 +64,7 @@ Extract ONLY concrete physical events from tweets.
        "Langley AFB, Virginia"  → 37.082, -76.360
        "Little Creek, Virginia" → 36.922, -76.181
        "Atlantic Ocean"         → 20.000, -35.000
+       "Indian Ocean"           → -20.000, 80.000
        "South China Sea"        → 15.000, 114.000
        "Strait of Hormuz"       → 26.500, 56.500
        "Caribbean Sea"          → 15.000, -75.000
@@ -70,8 +73,12 @@ Extract ONLY concrete physical events from tweets.
        "Iran-Pakistan border"   → 27.500, 62.000
        "Sahel region"           → 15.000, 5.000
 
-  F) UNKNOWN LOCATION: If location cannot be determined:
-     → location_name: null, location_type: "unknown", confidence: "low", lat: null, lon: null
+  F) UNKNOWN OR OBSCURE LOCATION:
+   - If the location is a known place (city, base, installation): use precise coordinates.
+   - If the location is obscure (small village, industrial site, military base not in common knowledge):
+     return the coordinates of the nearest major city or region you are confident about,
+     and set confidence to "medium" and location_type to "inferred".
+   - Only set lat/lon to null if the location is entirely unidentifiable geographically.
 
 3. TYPOLOGY:
   MIL: Attack, bombing, strike, shooting, combat, explosion
@@ -106,39 +113,32 @@ If no extractable event → return {"events": []}
 location_name must ALWAYS be in English (Latin script only).
 lat/lon must be null ONLY when location is truly unknown."""
 
-
 def extract_events_and_geoloc(tweet_text: str) -> dict | None:
-    """
-    Analyse un tweet OSINT et extrait les événements géolocalisés via Groq.
-
-    Args:
-        tweet_text (str): Le texte du tweet à analyser
-
-    Returns:
-        dict | None: Dictionnaire JSON contenant la liste des événements, ou None en cas d'erreur
-    """
-
     try:
         response = client.chat.completions.create(
-            model="qwen/qwen3-32b",
+            model="richardyoung/qwen3-14b-abliterated:q5_k_m",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": f"Analyze this tweet and return a JSON object:\n{tweet_text}"}
+                {
+                    "role": "user",
+                    "content": (
+                        f"Analyze this tweet and return a JSON object. "
+                        f"If no event is extractable, return {{\"events\": []}}.\n{tweet_text}"
+                    ),
+                },
             ],
             response_format={"type": "json_object"},
             temperature=0.0,
             max_tokens=1024,
-            top_p=1.0,
         )
 
         raw_content = response.choices[0].message.content.strip()
+
         if not raw_content:
-            continue
+            return {"events": []}
 
         return json.loads(raw_content)
 
     except Exception as e:
-        print(f"[INFO] Model {model} failed: {str(e)} → trying next model")
-        continue
-
-    return None
+        print(str(e))
+        return None
