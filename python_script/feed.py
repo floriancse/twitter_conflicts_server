@@ -116,7 +116,7 @@ for source in sources:
         location_accuracy = event.get("confidence")
         # Construction de la géométrie PostGIS (format WKT)
 
-        if lat is not None and lon is not None:
+        if lat and lon:
             geom_wkt = f"POINT ({lon} {lat})"        
         else:
             geom_wkt = None
