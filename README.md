@@ -12,7 +12,7 @@ Démo live Open-Source (MapLibre GL JS) : https://floriancse.github.io/osint-obs
 - Scraping automatique de flux RSS Nitter
 - Extraction d'événements via LLM local (Ollama + Qwen3-14B)
 - Géolocalisation automatique avec niveau de confiance
-- Classification typologique (MIL/OTHER) et importance stratégique (1-5)
+- Classification typologique (MIL/POL/MOVE/OTHER) et importance stratégique (1-5)
 - API REST avec export GeoJSON
 - Filtrage par période, auteur, mots-clés
 

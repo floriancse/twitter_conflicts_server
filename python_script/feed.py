@@ -27,6 +27,7 @@ from llm_geocode import extract_events_and_geoloc
 import os
 from dotenv import load_dotenv
 from time import gmtime, strftime
+from delete_db_duplicates import delete_dup_rows
 
 load_dotenv()
 # Configuration de la connexion à la base de données PostgreSQL
@@ -136,10 +137,22 @@ for source in sources:
             """, (item["id"], img))
             conn.commit()
         
-        
 
 cur.execute("REFRESH MATERIALIZED VIEW tension_index_mv;")
 conn.commit()
+
+model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+cur.execute("""
+    SELECT tweet_id, summary_text, text, created_at, conflict_typology,
+           ST_Y(geom::geometry) AS lat,
+           ST_X(geom::geometry) AS lon
+    FROM tweets
+    WHERE created_at >= NOW() - INTERVAL '24 hours'
+    ORDER BY created_at DESC
+""")
+
+rows = cur.fetchall()
+delete_dup_rows(rows, model)
 
 # Fermeture propre des connexions
 cur.close()

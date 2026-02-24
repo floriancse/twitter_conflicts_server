@@ -118,33 +118,27 @@ def extract_events_and_geoloc(tweet_text: str) -> dict | None:
         dict | None: Dictionnaire JSON contenant la liste des événements, ou None en cas d'erreur
     """
 
-    models_to_try = [
-        "llama-3.3-70b-versatile",
-        "qwen/qwen3-32b",              
-    ]
+    try:
+        response = client.chat.completions.create(
+            model="qwen/qwen3-32b",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": f"Analyze this tweet and return a JSON object:\n{tweet_text}"}
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.0,
+            max_tokens=1024,
+            top_p=1.0,
+        )
 
-    for model in models_to_try:
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Analyze this tweet and return a JSON object:\n{tweet_text}"}
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.0,
-                max_tokens=1024,
-                top_p=1.0,
-            )
-
-            raw_content = response.choices[0].message.content.strip()
-            if not raw_content:
-                continue
-
-            return json.loads(raw_content)
-
-        except Exception as e:
-            print(f"[INFO] Model {model} failed: {str(e)} → trying next model")
+        raw_content = response.choices[0].message.content.strip()
+        if not raw_content:
             continue
+
+        return json.loads(raw_content)
+
+    except Exception as e:
+        print(f"[INFO] Model {model} failed: {str(e)} → trying next model")
+        continue
 
     return None
