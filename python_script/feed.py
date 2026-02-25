@@ -158,4 +158,3 @@ conn.close()
 
 # Log de fin d'exécution
 get_time = strftime("%Y-%m-%d %H:%M:%S", gmtime())
-print(get_time, "Scraping terminé")

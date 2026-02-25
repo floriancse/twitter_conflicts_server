@@ -78,5 +78,4 @@ def delete_dup_rows(rows, cur, conn):
             (duplicates_to_delete,)
         )
         conn.commit()
-        print(f"\n{cur.rowcount} entrées supprimées")
 

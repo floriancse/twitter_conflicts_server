@@ -41,37 +41,22 @@ Extract ONLY concrete physical events from tweets.
      → location_type: "explicit", confidence: "high", precise lat/lon.
 
   C) LAND - VAGUE (borders, remote areas, regions):
-     → location_name format: "Descriptor, Country" or "Descriptor, Country1-Country2"
-       e.g. "Eastern Ukraine" → "Eastern Ukraine, Ukraine"
-            Iran-Pakistan border → "Saravan Border Area, Iran-Pakistan"
-     → location_type: "inferred", confidence: "medium", approximate centroid lat/lon.
+    → location_name format: "Descriptor, Country" or "Descriptor, Country1-Country2"
+      e.g. "Eastern Ukraine" → "Eastern Ukraine, Ukraine"
+            Iran-Pakistan border → "Iran-Pakistan Border Area, Iran-Pakistan"
+            Iran-Azerbaijan border → "Iran-Azerbaijan Border Area, Iran-Azerbaijan"
+    → location_type: "inferred", confidence: "medium", approximate centroid lat/lon.
 
   D) POLITICAL EVENTS: Geolocate at the capital of the country making the declaration.
      → location_type: "explicit", confidence: "high", precise lat/lon.
 
   E) COORDINATE PRECISION (mandatory):
-     - Always 3 decimal places.
-     - Precise known locations: use accurate coordinates.
-     - Approximate locations: use plausible centroid.
-     - If exact coordinates are unknown, always prefer an approximate centroid over null.
-          e.g. "Kaleikino" (obscure Russian village) → use nearest known city coordinates.
-
-     Reference coordinates:
-       "Kyiv, Ukraine"          → 50.450, 30.523
-       "Taipei, Taiwan"         → 25.047, 121.543
-       "RAF Mildenhall, UK"     → 52.361, 0.486
-       "Pyongyang, North Korea" → 39.019, 125.754
-       "Langley AFB, Virginia"  → 37.082, -76.360
-       "Little Creek, Virginia" → 36.922, -76.181
-       "Atlantic Ocean"         → 20.000, -35.000
-       "Indian Ocean"           → -20.000, 80.000
-       "South China Sea"        → 15.000, 114.000
-       "Strait of Hormuz"       → 26.500, 56.500
-       "Caribbean Sea"          → 15.000, -75.000
-       "Eastern Ukraine"        → 48.500, 37.500
-       "Eastern Poland"         → 52.000, 23.500
-       "Iran-Pakistan border"   → 27.500, 62.000
-       "Sahel region"           → 15.000, 5.000
+   - Always 3 decimal places.
+   - Use your own geographic knowledge to estimate coordinates.
+   - For bilateral borders: compute the centroid of the actual shared border segment.
+   - For obscure locations: use the nearest identifiable place you are confident about.
+   - Only set lat/lon to null if the location is entirely unidentifiable geographically.
+   - Do NOT interpolate from unrelated locations.
 
   F) UNKNOWN OR OBSCURE LOCATION:
    - If the location is a known place (city, base, installation): use precise coordinates.
@@ -79,21 +64,26 @@ Extract ONLY concrete physical events from tweets.
      return the coordinates of the nearest major city or region you are confident about,
      and set confidence to "medium" and location_type to "inferred".
    - Only set lat/lon to null if the location is entirely unidentifiable geographically.
+   - For bilateral borders not listed above, compute the centroid of the shared border segment using the two countries' general geography — do NOT reuse a different border's coordinates
 
-3. TYPOLOGY:
-  MIL: Attack, bombing, strike, shooting, combat, explosion
-  POL: Political declaration, official announcement, defense budget, strategic intention
-  MOVE: Naval/air deployment, ship/aircraft arrival or departure, surveillance flight
-  OTHER: Civilian seizure, non-military incident, accident
+  3. TYPOLOGY:
+    MIL: Attack, bombing, strike, shooting, combat, explosion
+    POL: Political declaration, official announcement, defense budget, strategic intention
+    MOVE: Naval/air deployment, ship/aircraft arrival or departure, surveillance flight, airspace restriction
+    OTHER: Civilian seizure, non-military incident, accident
 
-4. IMPORTANCE (1-5, be conservative):
-  1: Minor local incident, routine movement, routine declaration
-  2: Standard tactical event (patrol, small strike, minor announcement)
-  3: Notable event (infrastructure attack, multi-unit deployment, significant budget)
-  4: Major strategic escalation (massive attack, doctrine change, diplomatic rupture)
-  5: Exceptional global crisis (war declared, nuclear strike, regional collapse)
+  4. TENSION SCORE (0-5) — evaluate the potential to generate or escalate geopolitical tension:
+    0: No tension generated — purely routine, administrative, or logistical (e.g. scheduled exercise, budget vote)
+    1: Minimal tension — minor local incident, routine patrol, low-stakes declaration
+    2: Low tension — standard tactical event, small skirmish, minor NOTAM in a calm zone
+    3: Moderate tension — notable event with escalation potential (infrastructure attack, NOTAM in a tension zone,
+      significant deployment, airspace restriction near a conflict area)
+    4: High tension — major escalation (massive strike, doctrine shift, diplomatic rupture, large naval deployment)
+    5: Critical — exceptional event threatening regional or global stability (war declaration, WMD use, state collapse)
 
-5. OUTPUT FORMAT — ALL FIELDS MANDATORY:
+    Be conservative: most events score 1-3. Reserve 4-5 for genuinely exceptional events.
+
+  5. OUTPUT FORMAT — ALL FIELDS MANDATORY:
 {
   "events": [
     {
