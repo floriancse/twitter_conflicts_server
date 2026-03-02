@@ -99,6 +99,7 @@ for source in sources:
                 cur.execute("""
                 INSERT INTO public.TWEETS (tweet_id, created_at, tweet_url, username, text) 
                 VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (tweet_id) DO NOTHING
                 """, (item["id"], item["date"], item["link"], item["author"], item["title"]))
                 conn.commit()
             continue
@@ -125,7 +126,8 @@ for source in sources:
         # Insertion du tweet avec toutes ses métadonnées géospatiales
         cur.execute("""
         INSERT INTO public.TWEETS (tweet_id, created_at, tweet_url, username, text, location_accuracy, importance_score, conflict_typology, summary_text, location_name, GEOM) 
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CASE WHEN %s IS NOT NULL THEN ST_GeomFromText(%s, 4326) ELSE NULL END) """, 
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CASE WHEN %s IS NOT NULL THEN ST_GeomFromText(%s, 4326) ELSE NULL END)
+        ON CONFLICT (tweet_id) DO NOTHING """, 
         (item["id"], item["date"], item["link"], item["author"], item["title"], location_accuracy, strategic_importance, typology, summary_text, location_name, geom_wkt, geom_wkt))
         conn.commit()
 
@@ -145,7 +147,7 @@ cur.execute("""
            ST_Y(geom::geometry) AS lat,
            ST_X(geom::geometry) AS lon
     FROM tweets
-    WHERE created_at >= NOW() - INTERVAL '24 hours'
+    WHERE created_at >= NOW() - INTERVAL '24 hours' AND GEOM IS NOT NULL
     ORDER BY created_at DESC
 """)
 

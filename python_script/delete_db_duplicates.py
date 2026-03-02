@@ -19,7 +19,7 @@ def delete_dup_rows(rows, cur, conn):
     if not rows:
         return
     ids        = [r[0] for r in rows]
-    texts      = [f"{r[1] or ''} {r[2] or ''}" for r in rows]
+    texts      = [r[1]for r in rows]
     timestamps = [r[3] for r in rows]
     typologies = [r[4] for r in rows]
     coords     = [(r[5], r[6]) if r[5] is not None else None for r in rows]
@@ -30,8 +30,8 @@ def delete_dup_rows(rows, cur, conn):
     sim_matrix = cosine_similarity(embeddings)
 
     # Paramètres
-    SIM_THRESHOLD     = 0.85  
-    SIM_THRESHOLD_GEO = 0.75 
+    SIM_THRESHOLD     = 0.80 
+    SIM_THRESHOLD_GEO = 0.80 
     GEO_RADIUS_KM     = 50    
     TIME_WINDOW       = timedelta(hours=24)
 

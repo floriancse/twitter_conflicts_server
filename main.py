@@ -143,7 +143,7 @@ def get_world_areas():
                     JSON_BUILD_OBJECT(
                         'type', 'Feature',
                         'geometry', ST_AsGeoJSON(ST_Simplify(geom, 0.01), 4)::JSON,
-                        'properties', JSON_BUILD_OBJECT('id', id, 'name', "NAME_FR")
+                        'properties', JSON_BUILD_OBJECT('id', id, 'name', entity_name)
                     )
                 )
             )
@@ -239,7 +239,7 @@ def get_tweets(
             params.extend(username_list)
 
     if area:
-        conditions.append("""wa."NAME_FR" = %s""")
+        conditions.append("""wa.entity_name = %s""")
         params.append(area)
         
     where_clause = " AND ".join(conditions)
@@ -261,7 +261,7 @@ def get_tweets(
                             'location_accuracy',         t.location_accuracy,
                             'importance_score',       t.importance_score,
                             'conflict_typology',         t.conflict_typology,
-                            'area_name',        wa."NAME_FR",
+                            'area_name',        wa.entity_name,
                             'images', COALESCE(
                                 (
                                     SELECT JSON_AGG(ti.image_url ORDER BY ti.image_url)
