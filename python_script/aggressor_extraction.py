@@ -7,6 +7,33 @@ import json
 from openai import OpenAI
 import psycopg2
 
+SQL_GET_MIL_TWEETS = """
+    SELECT tweet_id,
+           created_at::DATE,
+           summary_text,
+           location_name,
+           ST_X(geom) AS lon,
+           ST_Y(geom) AS lat
+    FROM   tweets
+    WHERE  conflict_typology = 'MIL'
+      AND  geom IS NOT NULL
+      AND  summary_text IS NOT NULL
+      AND  created_at >= NOW() - INTERVAL '24 hours'
+    ORDER BY created_at DESC
+"""
+
+SQL_GET_CAPITALS = """
+    SELECT a.entity_name,
+           c.name,
+           ST_X(c.geom) AS lon,
+           ST_Y(c.geom) AS lat
+    FROM   world_areas   a
+    LEFT JOIN world_capitals c ON ST_Intersects(a.geom, c.geom)
+    WHERE  c.geom IS NOT NULL
+"""
+
+SQL_GET_PROCESSED_ACTIONS = "SELECT tweet_id FROM MILITARY_ACTIONS"
+
 client = OpenAI(
     base_url="http://localhost:11434/v1",
     api_key="ollama",
@@ -43,6 +70,22 @@ def build_prompt(countries: list[str]) -> str:
         "action": "string or null",
         "target": "string | array | null"
         }}"""
+
+def fetch_aggressor_data(cur):
+    """Récupère toutes les données nécessaires à l'extraction des aggresseurs"""
+    cur.execute(SQL_GET_MIL_TWEETS)
+    tweets = cur.fetchall()
+
+    cur.execute(SQL_GET_CAPITALS)
+    country_dict = {
+        row[0]: [row[1], (row[2], row[3])]
+        for row in cur.fetchall()
+    }
+
+    cur.execute(SQL_GET_PROCESSED_ACTIONS)
+    already_processed = {row[0] for row in cur.fetchall()}
+
+    return tweets, country_dict, already_processed
 
 
 def keep_first_entity(valeur) -> str | None:
@@ -81,7 +124,8 @@ def extract_triplet(summary_text: str, countries: list[str]) -> dict | None:
         return None
 
 
-def generate_aggressor(cur, conn, tweets, already_processed, country_dict):
+def generate_aggressor(cur, conn):
+    tweets, country_dict, already_processed = fetch_aggressor_data(cur)
     countries = list(country_dict.keys())
     for row in tweets :
         tweet_id, date, summary, loc_name, lon_tweet, lat_tweet  = row

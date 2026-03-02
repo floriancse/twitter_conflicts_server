@@ -43,51 +43,41 @@ SOURCES = [
 
 SQL_GET_TWEET_IDS = "SELECT tweet_id FROM tweets"
 
-SQL_GET_PROCESSED_ACTIONS = "SELECT tweet_id FROM MILITARY_ACTIONS"
-
 SQL_REFRESH_TENSION_MV = "REFRESH MATERIALIZED VIEW tension_index_mv"
 
 SQL_GET_RECENT_TWEETS_FOR_DEDUP = """
-    SELECT tweet_id, summary_text, text, created_at, conflict_typology,
-           ST_Y(geom::geometry) AS lat,
-           ST_X(geom::geometry)  AS lon
-    FROM   tweets
-    WHERE  created_at >= NOW() - INTERVAL '24 hours'
-      AND  geom IS NOT NULL
-    ORDER BY created_at DESC
-"""
-
-SQL_GET_MIL_TWEETS = """
-    SELECT tweet_id,
-           created_at::DATE,
-           summary_text,
-           location_name,
-           ST_X(geom) AS lon,
-           ST_Y(geom) AS lat
-    FROM   tweets
-    WHERE  conflict_typology = 'MIL'
-      AND  geom IS NOT NULL
-      AND  summary_text IS NOT NULL
-      AND  created_at >= NOW() - INTERVAL '24 hours'
-    ORDER BY created_at DESC
-"""
-
-SQL_GET_CAPITALS = """
-    SELECT a.entity_name,
-           c.name,
-           ST_X(c.geom) AS lon,
-           ST_Y(c.geom) AS lat
-    FROM   world_areas   a
-    LEFT JOIN world_capitals c ON ST_Intersects(a.geom, c.geom)
-    WHERE  c.geom IS NOT NULL
+    SELECT
+        TWEET_ID,
+        SUMMARY_TEXT,
+        TEXT,
+        CREATED_AT,
+        CONFLICT_TYPOLOGY,
+        ST_Y (GEOM::GEOMETRY) AS LAT,
+        ST_X (GEOM::GEOMETRY) AS LON
+    FROM
+        TWEETS
+    WHERE
+        CREATED_AT >= NOW() - INTERVAL '24 hours'
+        AND GEOM IS NOT NULL
+    ORDER BY
+        CREATED_AT DESC
 """
 
 SQL_INSERT_TWEET_FULL = """
-    INSERT INTO public.tweets (
-        tweet_id, created_at, tweet_url, username, text,
-        location_accuracy, importance_score, conflict_typology,
-        summary_text, location_name, geom
-    )
+    INSERT INTO
+        PUBLIC.TWEETS (
+            TWEET_ID,
+            CREATED_AT,
+            TWEET_URL,
+            USERNAME,
+            TEXT,
+            LOCATION_ACCURACY,
+            IMPORTANCE_SCORE,
+            CONFLICT_TYPOLOGY,
+            SUMMARY_TEXT,
+            LOCATION_NAME,
+            GEOM
+        )
     VALUES (
         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
         CASE WHEN %s IS NOT NULL THEN ST_GeomFromText(%s, 4326) ELSE NULL END
@@ -96,14 +86,16 @@ SQL_INSERT_TWEET_FULL = """
 """
 
 SQL_INSERT_TWEET_MINIMAL = """
-    INSERT INTO public.tweets (tweet_id, created_at, tweet_url, username, text)
-    VALUES (%s, %s, %s, %s, %s)
+    INSERT INTO
+        PUBLIC.TWEETS (TWEET_ID, CREATED_AT, TWEET_URL, USERNAME, TEXT)    
+        VALUES (%s, %s, %s, %s, %s)
     ON CONFLICT (tweet_id) DO NOTHING
 """
 
 SQL_INSERT_IMAGE = """
-    INSERT INTO public.tweet_images (tweet_id, image_url)
-    VALUES (%s, %s)
+    INSERT INTO
+        PUBLIC.TWEET_IMAGES (TWEET_ID, IMAGE_URL)    
+        VALUES (%s, %s)
 """
 
 # ==============================================================================
@@ -194,21 +186,9 @@ conn.commit()
 
 cur.execute(SQL_GET_RECENT_TWEETS_FOR_DEDUP)
 rows = cur.fetchall()
+
 delete_dup_rows(rows, cur, conn)
-
-cur.execute(SQL_GET_MIL_TWEETS)
-tweets = cur.fetchall()
-
-cur.execute(SQL_GET_CAPITALS)
-country_dict = {
-    row[0]: [row[1], (row[2], row[3])]
-    for row in cur.fetchall()
-}
-
-cur.execute(SQL_GET_PROCESSED_ACTIONS)
-already_processed = {row[0] for row in cur.fetchall()}
-
-generate_aggressor(cur, conn, tweets, already_processed, country_dict)
+generate_aggressor(cur, conn)
 
 cur.close()
 conn.close()
