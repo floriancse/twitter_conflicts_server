@@ -3,7 +3,6 @@ from sklearn.metrics.pairwise import cosine_similarity
 from datetime import timedelta
 from math import radians, sin, cos, sqrt, atan2
 
-
 def haversine(coord1, coord2):
     """Distance en km entre deux points (lat, lon). Retourne inf si l'un est None."""
     if coord1 is None or coord2 is None:

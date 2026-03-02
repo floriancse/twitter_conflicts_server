@@ -1,5 +1,5 @@
 """
-Extraction (acteur, action, cible) via LLM local (Ollama)
+Extraction (aggressor, action, target) via LLM local (Ollama)
 Basé sur le module existant d'extraction géopolitique.
 """
 
@@ -10,15 +10,15 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
-# Configuration de la connexion à la base de données PostgreSQL
 DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "localhost"),           
+    "host": os.getenv("DB_HOST", "localhost"),
     "port": int(os.getenv("DB_PORT", "5432")),
     "database": os.getenv("DB_NAME", "twitter_conflicts"),
     "user": os.getenv("DB_USER", "tw_user"),
     "password": os.getenv("DB_PASSWORD"),
-    "sslmode": os.getenv("DB_SSLMODE", "disable"),      
+    "sslmode": os.getenv("DB_SSLMODE", "disable"),
 }
+
 
 def get_db_connection():
     """Établit et retourne une connexion à la base de données PostgreSQL"""
@@ -31,7 +31,7 @@ def get_db_connection():
     )
     return conn
 
-# Initialisation de la connexion et récupération des tweets existants
+
 conn = get_db_connection()
 cur = conn.cursor()
 
@@ -40,41 +40,43 @@ client = OpenAI(
     api_key="ollama",
 )
 
-def construire_prompt(pays_connus: list[str]) -> str:
+
+def build_prompt(countries: list[str]) -> str:
     """
     Construit le prompt en injectant la liste de pays dynamiquement.
     Si ta liste change en DB, le prompt se met à jour automatiquement.
     """
-    liste_formatee = ", ".join(f'"{p}"' for p in pays_connus)
+    liste_formatee = ", ".join(f'"{p}"' for p in countries)
 
     return f"""You are an OSINT analyst. Respond ONLY in JSON.
 
-From a conflict summary, extract WHO did WHAT to WHOM.
+        From a conflict summary, extract WHO did WHAT to WHOM.
 
-IMPORTANT: actor and target MUST be chosen EXACTLY (copy-paste) from this list, in French:
-{liste_formatee}
+        IMPORTANT: actor and target MUST be chosen EXACTLY (copy-paste) from this list, in French:
+        {liste_formatee}
 
-Rules:
-- actor: copy the EXACT string from the list above, character for character. Never translate or use English.
-- target: copy the EXACT string from the list above, character for character. Never translate or use English.- target: pick the closest match from the list. Never use a city or military unit.
-  If the target is a city, use its country instead (e.g. "Tel Aviv" → "Israël", "Manama" → "Bahreïn", "Moscow" → "Russie").
-  If the target is a military base or installation, use the country it's located in.
-- If the sentence is passive ("base was struck by Iran"), still put Iran as actor.
-- If two actors act jointly ("Israel and US struck Iran"), pick the most prominent one (the one named first or most active).
-- If multiple targets, pick the primary one (the one directly struck, not secondary).
-- If no match found in the list, use null.
+        Rules:
+        - actor: copy the EXACT string from the list above, character for character.
+        - target: copy the EXACT string from the list above, character for character. 
+        - target: pick the closest match from the list. Never use a city or military unit.
+            If the target is a city, use its country instead (e.g. "Tel Aviv" → "Israël", "Manama" → "Bahreïn", "Moscow" → "Russie").
+            If the target is a military base or installation, use the country it's located in.
+        - If the sentence is passive ("base was struck by Iran"), still put Iran as actor.
+        - If two actors act jointly ("Israel and US struck Iran"), pick the most prominent one (the one named first or most active).
+        - If multiple targets, pick the primary one (the one directly struck, not secondary).
+        - If no match found in the list, use null.
 
-Output format (strict JSON, no markdown):
-{{
-  "actor": "string | array | null",
-  "action": "string or null",
-  "target": "string | array | null"
-}}"""
+        Output format (strict JSON, no markdown):
+        {{
+        "actor": "string | array | null",
+        "action": "string or null",
+        "target": "string | array | null"
+        }}"""
 
 
-def garder_premier(valeur) -> str | None:
+def keep_first_entity(valeur) -> str | None:
     """
-    Force un seul acteur/cible, même si le LLM en renvoie plusieurs.
+    Force un seul aggressor/target, même si le LLM en renvoie plusieurs.
       ["Israël", "États-Unis"]  ->  "Israël"
       "États-Unis, Israël"      ->  "États-Unis"
       "Iran"                    ->  "Iran"
@@ -88,12 +90,12 @@ def garder_premier(valeur) -> str | None:
     return valeur.strip()
 
 
-def extraire_triplet(summary_text: str) -> dict | None:
+def extract_triplet(summary_text: str) -> dict | None:
     try:
         response = client.chat.completions.create(
             model="mistral-small:24b",
             messages=[
-                {"role": "system", "content": construire_prompt(PAYS_CONNUS)},
+                {"role": "system", "content": build_prompt(countries)},
                 {"role": "user", "content": summary_text},
             ],
             response_format={"type": "json_object"},
@@ -108,17 +110,18 @@ def extraire_triplet(summary_text: str) -> dict | None:
         print(f"Erreur : {e}")
         return None
 
-cur.execute("""
+
+SQL_COUNTRY_NAMES = """
     SELECT
         entity_name
     FROM
         WORLD_AREAS
-    """)
+    """
 
-PAYS_CONNUS = [i[0] for i in cur.fetchall()]
+cur.execute(SQL_COUNTRY_NAMES)
+countries = [i[0] for i in cur.fetchall()]
 
-# ── Tes résumés ───────────────────────────────────────────────
-cur.execute("""
+SQL_RECENT_TWEETS = """
     SELECT
         TWEET_ID,
         CREATED_AT::DATE,
@@ -135,16 +138,14 @@ cur.execute("""
     ORDER BY
         CREATED_AT DESC
     LIMIT
-        100
-    """)
+        20
+    """
 
-rows = cur.fetchall()
-tweet_ids = [i[0] for i in rows]
-resumes = [i[2] for i in rows]
-coords  = [(i[4], i[5]) for i in rows]
+cur.execute(SQL_RECENT_TWEETS)
+tweets = cur.fetchall()
 
 country_dict = {}
-cur.execute("""
+SQL_GET_CAPITALS = """
     SELECT
         entity_name,
         NAME,
@@ -155,31 +156,30 @@ cur.execute("""
         LEFT JOIN WORLD_CAPITALS C ON ST_INTERSECTS (A.GEOM, C.GEOM)
     WHERE
         C.GEOM IS NOT NULL
-    """)
-
+    """
+    
+cur.execute(SQL_GET_CAPITALS)
 rows = cur.fetchall()
+
 for i in rows:
     country_dict[i[0]] = [i[1], (i[2], i[3])]
 
-# ── Boucle principale ─────────────────────────────────────────
-
 print("=== EXTRACTION DES TRIPLETS VIA LLM ===\n")
 
-for tweet_id, resume, coord in zip(tweet_ids, resumes, coords):
-    resultat = extraire_triplet(resume)
+for row in tweets :
+    tweet_id, date, summary, loc_name, lon_tweet, lat_tweet = row
+    resultat = extract_triplet(summary)
 
     if resultat:
-        acteur = garder_premier(resultat.get("actor"))
+        aggressor = keep_first_entity(resultat.get("actor"))
         action = resultat.get("action")
-        cible  = garder_premier(resultat.get("target"))
-        statut = True if (acteur and cible) else False
+        target = keep_first_entity(resultat.get("target"))
 
-        if country_dict.get(acteur) and statut is True:
-            print(f"{acteur} {country_dict.get(acteur)[1]}  --[{action}]--> {cible} {coord}")
+        if country_dict.get(aggressor):
 
-            # Coordonnées de l'agresseur depuis country_dict
-            aggressor_coords = country_dict.get(acteur)
-            target_coords = country_dict.get(cible)
+
+            aggressor_coords = country_dict.get(aggressor)
+            target_coords = country_dict.get(target)
 
             aggressor_geom = None
             target_geom = None
@@ -189,11 +189,15 @@ for tweet_id, resume, coord in zip(tweet_ids, resumes, coords):
                 aggressor_geom = f"SRID=4326;POINT({lat} {lon})"
 
             if target_coords:
-                lon, lat = target_coords[1]
+                lon, lat = target_coords
                 target_geom = f"SRID=4326;POINT({lat} {lon})"
 
+            print(
+                f"{aggressor} {aggressor_coords}  --[{action}]--> {target} {target_coords}"
+            )
             try:
-                cur.execute("""
+                cur.execute(
+                    """
                     INSERT INTO MILITARY_ACTIONS
                         (TWEET_ID, AGGRESSOR, TARGET, ACTION, AGGRESSOR_GEOM, TARGET_GEOM)
                     VALUES
@@ -204,12 +208,14 @@ for tweet_id, resume, coord in zip(tweet_ids, resumes, coords):
                         ACTION         = EXCLUDED.ACTION,
                         AGGRESSOR_GEOM = EXCLUDED.AGGRESSOR_GEOM,
                         TARGET_GEOM    = EXCLUDED.TARGET_GEOM
-                """, (tweet_id, acteur, cible, action, aggressor_geom, target_geom))
+                """,
+                    (tweet_id, aggressor, target, action, aggressor_geom, target_geom),
+                )
                 conn.commit()
-                print(f"  ✓ Inséré : {tweet_id}")
+                print(f"Inséré : {tweet_id}")
             except Exception as e:
                 conn.rollback()
-                print(f"  ✗ Erreur insert {tweet_id} : {e}")
+                print(f"Erreur insert {tweet_id} : {e}")
 
 cur.close()
 conn.close()

@@ -313,14 +313,14 @@ def get_tension_index(
             result = cur.fetchone()
             country = result[0]
             tension_score = result[1]
-            niveau_tension = result[2]
+            tension_level = result[2]
             evenements_json = result[3]
             cur.close()
 
             return {
                 "country": country,
                 "tension_score": int(tension_score),
-                "niveau_tension": niveau_tension,
+                "tension_level": tension_level,
                 "evenements": evenements_json
             }
             
