@@ -3,6 +3,21 @@ from sklearn.metrics.pairwise import cosine_similarity
 from datetime import timedelta
 from math import radians, sin, cos, sqrt, atan2
 
+SQL_GET_RECENT_TWEETS_FOR_DEDUP = """
+    SELECT
+        tweet_id,
+        summary_text,
+        text,
+        created_at,
+        conflict_typology,
+        ST_Y(geom::geometry) AS lat,
+        ST_X(geom::geometry) AS lon
+    FROM   tweets
+    WHERE  created_at >= NOW() - INTERVAL '24 hours'
+      AND  geom IS NOT NULL
+    ORDER BY created_at DESC
+"""
+
 def haversine(coord1, coord2):
     """Distance en km entre deux points (lat, lon). Retourne inf si l'un est None."""
     if coord1 is None or coord2 is None:
@@ -14,7 +29,8 @@ def haversine(coord1, coord2):
     a = sin(dlat/2)**2 + cos(lat1)*cos(lat2)*sin(dlon/2)**2
     return R * 2 * atan2(sqrt(a), sqrt(1-a))
 
-def delete_dup_rows(rows, cur, conn):
+def delete_dup_rows(cur, conn):
+    rows = fetch_dedup_data(cur)
     if not rows:
         return
     ids        = [r[0] for r in rows]

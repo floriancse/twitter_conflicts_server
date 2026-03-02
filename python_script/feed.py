@@ -184,10 +184,7 @@ for source in SOURCES:
 cur.execute(SQL_REFRESH_TENSION_MV)
 conn.commit()
 
-cur.execute(SQL_GET_RECENT_TWEETS_FOR_DEDUP)
-rows = cur.fetchall()
-
-delete_dup_rows(rows, cur, conn)
+delete_dup_rows(cur, conn)
 generate_aggressor(cur, conn)
 
 cur.close()
