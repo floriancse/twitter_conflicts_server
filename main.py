@@ -402,24 +402,32 @@ def get_aggressor_range(
                     JSON_BUILD_OBJECT(
                         'type', 'Feature',
                         'geometry', ST_AsGeoJSON(
-                            ST_BUFFER(m.aggressor_geom, MAX(ST_DISTANCE(m.aggressor_geom, m.target_geom)))
+                            ST_BUFFER(sub.geom, sub.max_observed_range)
                         )::JSON,
                         'properties', JSON_BUILD_OBJECT(
-                            'entity_name',        a.entity_name,
-                            'capital',            c.name,
-                            'max_observed_range', MAX(ST_DISTANCE(m.aggressor_geom, m.target_geom))
+                            'entity_name',        sub.entity_name,
+                            'capital',            sub.name,
+                            'max_observed_range', sub.max_observed_range
                         )
                     )
                 ), '[]'::JSON)
             )
-        FROM world_areas a
-        LEFT JOIN world_capitals  c ON ST_INTERSECTS(a.geom, c.geom)
-        LEFT JOIN military_actions m ON ST_INTERSECTS(a.geom, m.aggressor_geom)
-        WHERE m.aggressor ILIKE %s
-        GROUP BY
-            a.entity_name,
-            c.name,
-            m.aggressor_geom;
+        FROM (
+            SELECT
+                a.entity_name,
+                c.name,
+                MAX(ST_DISTANCE(m.aggressor_geom, m.target_geom)) AS max_observed_range,
+                m.aggressor_geom AS geom
+            FROM world_areas a
+            LEFT JOIN world_capitals  c ON ST_INTERSECTS(a.geom, c.geom)
+            LEFT JOIN military_actions m ON ST_INTERSECTS(a.geom, m.aggressor_geom)
+            WHERE m.aggressor ILIKE %s
+            GROUP BY
+                a.entity_name,
+                c.name,
+                m.aggressor_geom
+        ) sub
+        WHERE sub.max_observed_range IS NOT NULL;
     """
 
     with get_db() as conn:
