@@ -388,3 +388,60 @@ def get_military_actions(
         cur.close()
 
     return Response(content=json.dumps(geojson_data, default=str), media_type="application/json")
+
+
+@app.get("/api/twitter_conflicts/aggressor_range.geojson")
+def get_aggressor_range(
+    aggressor: Optional[str] = None,
+):
+    """
+    Retourne la portée maximale observée d'un agresseur en format GeoJSON (buffer autour de la position de l'agresseur).
+    Args:
+        aggressor (str): Nom du pays agresseur - OBLIGATOIRE
+    Returns:
+        Response: GeoJSON FeatureCollection
+    """
+    query = """
+        SELECT
+            JSON_BUILD_OBJECT(
+                'type', 'FeatureCollection',
+                'features', COALESCE(JSON_AGG(
+                    JSON_BUILD_OBJECT(
+                        'type', 'Feature',
+                        'geometry', ST_AsGeoJSON(ST_BUFFER(sub.geom, sub.max_observed_range))::JSON,
+                        'properties', JSON_BUILD_OBJECT(
+                            'entity_name',        sub.entity_name,
+                            'capital',            sub.name,
+                            'max_observed_range', sub.max_observed_range
+                        )
+                    )
+                ), '[]'::JSON)
+            )
+        FROM (
+            SELECT
+                a.entity_name,
+                c.name,
+                MAX(ST_DISTANCE(m.aggressor_geom, m.target_geom)) AS max_observed_range,
+                m.aggressor_geom                                   AS geom
+            FROM world_areas a
+            LEFT JOIN world_capitals  c ON ST_INTERSECTS(a.geom, c.geom)
+            LEFT JOIN military_actions m ON ST_INTERSECTS(a.geom, m.aggressor_geom)
+            WHERE m.aggressor ILIKE %s
+            GROUP BY
+                a.entity_name,
+                c.name,
+                m.aggressor_geom
+        ) sub
+        WHERE sub.max_observed_range IS NOT NULL;
+    """
+
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(query, [aggressor])
+        geojson_data = cur.fetchone()[0] or {
+            "type": "FeatureCollection",
+            "features": []
+        }
+        cur.close()
+
+    return Response(content=json.dumps(geojson_data, default=str), media_type="application/json")

@@ -15,7 +15,7 @@ import os
 from dotenv import load_dotenv
 from time import gmtime, strftime
 from delete_db_duplicates import delete_dup_rows
-from aggressor_extraction import generate_aggressor
+from llm_aggressor_extraction import generate_aggressor
 
 load_dotenv()
 

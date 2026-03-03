@@ -8,18 +8,22 @@ import psycopg2
 
 
 SQL_GET_MIL_TWEETS = """
-    SELECT tweet_id,
-           created_at::DATE,
-           summary_text,
-           location_name,
-           ST_X(geom) AS lon,
-           ST_Y(geom) AS lat
-    FROM   tweets
-    WHERE  conflict_typology = 'MIL'
-      AND  geom IS NOT NULL
-      AND  summary_text IS NOT NULL
-      AND  created_at >= NOW() - INTERVAL '24 hours'
-    ORDER BY created_at DESC
+    SELECT
+        TWEET_ID,
+        CREATED_AT::DATE,
+        SUMMARY_TEXT,
+        LOCATION_NAME,
+        ST_X (GEOM) AS LON,
+        ST_Y (GEOM) AS LAT
+    FROM
+        TWEETS
+    WHERE
+        CONFLICT_TYPOLOGY = 'MIL'
+        AND GEOM IS NOT NULL
+        AND SUMMARY_TEXT IS NOT NULL
+        AND CREATED_AT >= NOW() - INTERVAL '24 hours'
+    ORDER BY
+        CREATED_AT DESC
 """
 
 SQL_GET_CAPITALS = """
@@ -43,34 +47,37 @@ client = OpenAI(
 
 def build_prompt(countries: list[str]) -> str:
     """
-    Construit le prompt système en injectant la liste de pays depuis la DB.
-    La liste est mise à jour automatiquement à chaque exécution.
+    Prompt amélioré : gestion explicite des nationalités + anti-hallucination.
     """
     liste_formatee = ", ".join(f'"{p}"' for p in countries)
-
     return f"""You are an OSINT analyst. Respond ONLY in JSON.
-
         From a conflict summary, extract WHO did WHAT to WHOM.
-
-        IMPORTANT: actor and target MUST be chosen EXACTLY (copy-paste) from this list, in French:
+        IMPORTANT: actor and target MUST be chosen EXACTLY (copy-paste) from this list of countries:
         {liste_formatee}
 
-        Rules:
-        - actor: copy the EXACT string from the list above, character for character.
-        - target: copy the EXACT string from the list above, character for character. 
-        - target: pick the closest match from the list. Never use a city or military unit.
-            If the target is a city, use its country instead (e.g. "Tel Aviv" → "Israël", "Manama" → "Bahreïn", "Moscow" → "Russie").
-            If the target is a military base or installation, use the country it's located in.
-        - If the sentence is passive ("base was struck by Iran"), still put Iran as actor.
-        - If two actors act jointly ("Israel and US struck Iran"), pick the most prominent one (the one named first or most active).
-        - If multiple targets, pick the primary one (the one directly struck, not secondary).
-        - If no match found in the list, use null.
+        RULES (follow strictly):
+        - actor and target = country name EXACTLY as written in the list above.
+        - If the text uses a nationality adjective, map it automatically to the country:
+        • Ukrainian, Ukrainians, Ukrainian Air Force → "Ukraine"
+        • Russian, Russians → "Russie"
+        • Israeli, Israelis → "Israël"
+        • Iranian, Iranians → "Iran"
+        • British, UK → "Royaume-Uni"
+        • American, US → "États-Unis"
+        (use common sense for any other nationality)
+        - Military units, forces, drones, helicopters, crews, bases = NEVER actor or target. Always use the owning country.
+        - Example: "Ukrainian Air Force helicopter crew intercepts Russian Shahed-136 drones" → actor="Ukraine", target="Russia"
+        - Passive voice: still put the real actor (e.g. "base was struck by Iran" → actor="Iran")
+        - Joint action: pick the first/most prominent country named.
+        - Multiple targets: pick only the primary one.
+        - If no match possible in the list → null
+        - Never output a city, a military unit, or anything not in the list.
 
-        Output format (strict JSON, no markdown):
+        Output format (strict JSON, no markdown, no extra text):
         {{
-        "actor": "string | array | null",
+        "actor": "string | null",
         "action": "string or null",
-        "target": "string | array | null"
+        "target": "string | null"
         }}"""
 
 
@@ -167,8 +174,7 @@ def generate_aggressor(cur, conn):
             aggressor_geom = f"SRID=4326;POINT({lon} {lat})"
 
         # La géométrie cible utilise les coordonnées du tweet (lieu de l'événement)
-        if target_coords:
-            target_geom = f"SRID=4326;POINT({lon_tweet} {lat_tweet})"
+        target_geom = f"SRID=4326;POINT({lon_tweet} {lat_tweet})"
 
         print(f"{aggressor} {aggressor_coords}  --[{action}]--> {target} {target_coords}")
 
