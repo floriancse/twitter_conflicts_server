@@ -327,3 +327,64 @@ def get_tension_index(
         except Exception:
             cur.close()
             return None
+
+
+@app.get("/api/twitter_conflicts/military_actions.geojson")
+def get_military_actions(
+    start_date: datetime = Query(..., description="Date de début (ISO 8601, ex: 2026-02-14T00:00:00Z)"),
+    end_date: datetime = Query(..., description="Date de fin (ISO 8601, ex: 2026-02-15T23:59:59Z)"),
+    aggressor: Optional[str] = None,
+):
+    """
+    Retourne les actions militaires en format GeoJSON (lignes aggressor → target).
+    Args:
+        start_date (datetime): Date de début - OBLIGATOIRE
+        end_date (datetime): Date de fin - OBLIGATOIRE
+        aggressor (str, optional): Nom du pays agresseur
+    Returns:
+        Response: GeoJSON FeatureCollection
+    """
+    conditions = ["t.created_at >= %s AND t.created_at <= %s"]
+    params = [start_date, end_date]
+
+    if aggressor:
+        conditions.append("m.aggressor = %s")
+        params.append(aggressor)
+
+    conditions.append("ST_MAKELINE(m.aggressor_geom, m.target_geom) IS NOT NULL")
+
+    where_clause = " AND ".join(conditions)
+
+    query = f"""
+        SELECT
+            JSON_BUILD_OBJECT(
+                'type', 'FeatureCollection',
+                'features', COALESCE(JSON_AGG(
+                    JSON_BUILD_OBJECT(
+                        'type', 'Feature',
+                        'geometry', ST_AsGeoJSON(ST_MAKELINE(m.aggressor_geom, m.target_geom))::JSON,
+                        'properties', JSON_BUILD_OBJECT(
+                            'tweet_id',   m.tweet_id,
+                            'created_at', t.created_at::DATE,
+                            'aggressor',  m.aggressor,
+                            'target',     m.target,
+                            'action',     m.action
+                        )
+                    )
+                ), '[]'::JSON)
+            )
+        FROM public.military_actions m
+        LEFT JOIN public.tweets t ON t.tweet_id = m.tweet_id
+        WHERE {where_clause};
+    """
+
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(query, params)
+        geojson_data = cur.fetchone()[0] or {
+            "type": "FeatureCollection",
+            "features": []
+        }
+        cur.close()
+
+    return Response(content=json.dumps(geojson_data, default=str), media_type="application/json")

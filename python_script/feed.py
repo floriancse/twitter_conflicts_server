@@ -45,39 +45,12 @@ SQL_GET_TWEET_IDS = "SELECT tweet_id FROM tweets"
 
 SQL_REFRESH_TENSION_MV = "REFRESH MATERIALIZED VIEW tension_index_mv"
 
-SQL_GET_RECENT_TWEETS_FOR_DEDUP = """
-    SELECT
-        TWEET_ID,
-        SUMMARY_TEXT,
-        TEXT,
-        CREATED_AT,
-        CONFLICT_TYPOLOGY,
-        ST_Y (GEOM::GEOMETRY) AS LAT,
-        ST_X (GEOM::GEOMETRY) AS LON
-    FROM
-        TWEETS
-    WHERE
-        CREATED_AT >= NOW() - INTERVAL '24 hours'
-        AND GEOM IS NOT NULL
-    ORDER BY
-        CREATED_AT DESC
-"""
-
 SQL_INSERT_TWEET_FULL = """
-    INSERT INTO
-        PUBLIC.TWEETS (
-            TWEET_ID,
-            CREATED_AT,
-            TWEET_URL,
-            USERNAME,
-            TEXT,
-            LOCATION_ACCURACY,
-            IMPORTANCE_SCORE,
-            CONFLICT_TYPOLOGY,
-            SUMMARY_TEXT,
-            LOCATION_NAME,
-            GEOM
-        )
+    INSERT INTO public.tweets (
+        tweet_id, created_at, tweet_url, username, text,
+        location_accuracy, importance_score, conflict_typology,
+        summary_text, location_name, geom
+    )
     VALUES (
         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
         CASE WHEN %s IS NOT NULL THEN ST_GeomFromText(%s, 4326) ELSE NULL END
