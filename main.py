@@ -203,6 +203,42 @@ def get_shipping_lanes():
     return Response(content=json.dumps(geojson_data), media_type="application/json")
 
 
+@app.get("/api/twitter_conflicts/chokepoints.geojson")
+def get_checkpoints():
+    """
+    """
+    with get_db() as conn:
+        cur = conn.cursor()
+
+        cur.execute(
+            """
+            SELECT
+                JSON_BUILD_OBJECT(
+                    'type',
+                    'FeatureCollection',
+                    'features',
+                    JSON_AGG(
+                        JSON_BUILD_OBJECT(
+                            'type',
+                            'Feature',
+                            'geometry',
+                            ST_ASGEOJSON (ST_SIMPLIFY (GEOM, 0.01), 4)::JSON,
+                            'properties',
+                            JSON_BUILD_OBJECT('id', ID, 'portname', PORTNAME)
+                        )
+                    )
+                )
+            FROM
+                CHOKEPOINTS
+        """
+        )
+
+        geojson_data = cur.fetchone()[0]
+        cur.close()
+
+    return Response(content=json.dumps(geojson_data), media_type="application/json")
+
+
 @app.get("/api/twitter_conflicts/usernames")
 def get_usernames(
     start_date: datetime = Query(..., description="Date de début (ISO 8601, ex: 2026-02-14T00:00:00Z)"),
