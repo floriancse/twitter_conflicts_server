@@ -236,7 +236,7 @@ def get_checkpoints():
         geojson_data = cur.fetchone()[0]
         cur.close()
 
-    return Response(content=json.dumps(geojson_data), media_type="application/json")
+    return Response(content=json.dumps(geojson_data))
 
 
 @app.get("/api/twitter_conflicts/usernames")
