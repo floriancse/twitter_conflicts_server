@@ -500,22 +500,29 @@ def get_aggressor_range(
     aggressor: str = Query(..., description="Nom du pays agresseur (ex: 'Israel')"),
 ):
     query = """
-        SELECT
-            ST_ASGEOJSON (
-                ST_INTERSECTION (
-                    ST_MAKEENVELOPE (-179, -60, 179, 75, 4326),
-                    ST_BUFFER (
-                        AGGRESSOR_GEOM,
-                        MAX(ST_DISTANCE (AGGRESSOR_GEOM, TARGET_GEOM))
-                    )
+            SELECT
+                JSON_BUILD_OBJECT(
+                    'type', 'FeatureCollection',
+                    'features', COALESCE(JSON_AGG(
+                        JSON_BUILD_OBJECT(
+                            'type', 'Feature',
+                            'geometry', ST_ASGEOJSON(
+                                ST_INTERSECTION(
+                                    ST_MAKEENVELOPE(-179, -60, 179, 75, 4326),
+                                    ST_BUFFER(
+                                        aggressor_geom,
+                                        ST_DISTANCE(aggressor_geom, target_geom)
+                                    )
+                                )
+                            )::JSON,
+                            'properties', JSON_BUILD_OBJECT(
+                                'aggressor', aggressor
+                            )
+                        )
+                    ), '[]'::JSON)
                 )
-            )
-        FROM
-            MILITARY_ACTIONS
-        WHERE
-            AGGRESSOR = %s
-        GROUP BY
-            AGGRESSOR_GEOM;
+            FROM MILITARY_ACTIONS
+            WHERE AGGRESSOR = %s;
     """
 
     with get_db() as conn:
