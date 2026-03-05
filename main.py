@@ -513,7 +513,7 @@ def get_aggressor_range(
         FROM
             MILITARY_ACTIONS
         WHERE
-            AGGRESSOR = 'United States of America'
+            AGGRESSOR = %s
         GROUP BY
             AGGRESSOR_GEOM;
     """
