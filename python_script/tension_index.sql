@@ -111,8 +111,8 @@ SELECT
 			'score_contribution_normalized',
 			ROUND(
 				(
-					(R.EVENT_SCORE / NULLIF(CT.RAW_SCORE, 0)) -- part relative de l'événement
-					* LEAST(100, ((CT.LOG_SCORE / NULLIF(D.P99, 0)) * 100)) -- × TENSION_SCORE du pays
+					(R.EVENT_SCORE / NULLIF(CT.RAW_SCORE, 0))
+					* LEAST(100, ((CT.LOG_SCORE / NULLIF(D.P99, 0)) * 100))
 				)::NUMERIC,
 				2
 			),

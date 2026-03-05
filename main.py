@@ -272,6 +272,34 @@ def get_usernames(
 
     return {"usernames": usernames}
 
+@app.get("/api/twitter_conflicts/daily_summaries")
+def get_country_summaries(
+    country: str  # annotation manquante (= au lieu de :)
+):
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                SUMMARY_DATE,
+                SUMMARY_TEXT
+            FROM
+                DAILY_SUMMARIES
+            WHERE
+                COUNTRY = %s
+            ORDER BY
+                SUMMARY_DATE DESC
+            LIMIT 30
+            """,
+            (country,)
+        )
+        summaries = [
+            {"date": row[0], "summary": row[1]}  
+            for row in cur.fetchall()
+        ]
+        cur.close()
+    return {"summaries": summaries}
+
 
 @app.get("/api/twitter_conflicts/tweets.geojson")
 def get_tweets(
