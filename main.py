@@ -281,7 +281,7 @@ def get_country_summaries(
         cur.execute(
             """
             SELECT
-                SUMMARY_DATE,
+                SUMMARY_DATE::DATE,
                 SUMMARY_TEXT
             FROM
                 DAILY_SUMMARIES
