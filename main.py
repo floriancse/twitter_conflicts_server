@@ -501,38 +501,21 @@ def get_aggressor_range(
 ):
     query = """
         SELECT
-            JSON_BUILD_OBJECT(
-                'type', 'FeatureCollection',
-                'features', COALESCE(JSON_AGG(
-                    JSON_BUILD_OBJECT(
-                        'type', 'Feature',
-                        'geometry', ST_AsGeoJSON(
-                            ST_BUFFER(sub.geom, sub.max_observed_range)
-                        )::JSON,
-                        'properties', JSON_BUILD_OBJECT(
-                            'entity_name',        sub.entity_name,
-                            'capital',            sub.name,
-                            'max_observed_range', sub.max_observed_range
-                        )
+            ST_ASGEOJSON (
+                ST_INTERSECTION (
+                    ST_MAKEENVELOPE (-179, -60, 179, 75, 4326),
+                    ST_BUFFER (
+                        AGGRESSOR_GEOM,
+                        MAX(ST_DISTANCE (AGGRESSOR_GEOM, TARGET_GEOM))
                     )
-                ), '[]'::JSON)
+                )
             )
-        FROM (
-            SELECT
-                a.entity_name,
-                c.name,
-                MAX(ST_DISTANCE(m.aggressor_geom, m.target_geom)) AS max_observed_range,
-                m.aggressor_geom AS geom
-            FROM world_areas a
-            LEFT JOIN world_capitals  c ON ST_INTERSECTS(a.geom, c.geom)
-            LEFT JOIN military_actions m ON ST_INTERSECTS(a.geom, m.aggressor_geom)
-            WHERE m.aggressor ILIKE %s
-            GROUP BY
-                a.entity_name,
-                c.name,
-                m.aggressor_geom
-        ) sub
-        WHERE sub.max_observed_range IS NOT NULL;
+        FROM
+            MILITARY_ACTIONS
+        WHERE
+            AGGRESSOR = 'United States of America'
+        GROUP BY
+            AGGRESSOR_GEOM;
     """
 
     with get_db() as conn:

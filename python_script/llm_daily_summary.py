@@ -37,9 +37,10 @@ client = OpenAI(base_url=LLM_BASE_URL, api_key=LLM_API_KEY)
 SQL_GET_DATES = """
 SELECT CREATED_AT::DATE
 FROM TWEETS T
+WHERE CREATED_AT::DATE < CURRENT_DATE
 GROUP BY CREATED_AT::DATE
-ORDER BY CREATED_AT DESC
-LIMIT 30 OFFSET 1
+ORDER BY CREATED_AT::DATE DESC
+LIMIT 1
 """
 
 SQL_GET_AREAS = """
@@ -65,6 +66,7 @@ ORDER BY CREATED_AT DESC
 SQL_INSERT_SUMMARY = """
 INSERT INTO DAILY_SUMMARIES (SUMMARY_DATE, COUNTRY, SUMMARY_TEXT)
 VALUES (%s, %s, %s)
+ON CONFLICT (SUMMARY_DATE, COUNTRY) DO NOTHING
 """
 
 # ==============================================================================
@@ -113,7 +115,7 @@ def get_db_connection():
 # ==============================================================================
 # MAIN
 # ==============================================================================
-def main():
+def run_daily_summary():
     conn = get_db_connection()
     cur = conn.cursor()
 
@@ -156,4 +158,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    run_daily_summary()

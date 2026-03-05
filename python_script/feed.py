@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 from time import gmtime, strftime
 from delete_db_duplicates import delete_dup_rows
 from llm_aggressor_extraction import generate_aggressor
+from llm_daily_summary import run_daily_summary
 
 load_dotenv()
 
@@ -157,8 +158,9 @@ for source in SOURCES:
 cur.execute(SQL_REFRESH_TENSION_MV)
 conn.commit()
 
-delete_dup_rows(cur, conn)
-generate_aggressor(cur, conn)
+delete_dup_rows()
+generate_aggressor()
+run_daily_summary()
 
 cur.close()
 conn.close()

@@ -5,7 +5,27 @@ Extraction des triplets (agresseur, action, cible) depuis des résumés de confl
 import json
 from openai import OpenAI
 import psycopg2
+import os
+from dotenv import load_dotenv
 
+load_dotenv()
+
+DB_CONFIG = {
+    "host":     os.getenv("DB_HOST", "localhost"),
+    "port":     int(os.getenv("DB_PORT", "5432")),
+    "database": os.getenv("DB_NAME", "twitter_conflicts"),
+    "user":     os.getenv("DB_USER", "tw_user"),
+    "password": os.getenv("DB_PASSWORD"),
+}
+
+def get_db_connection():
+    return psycopg2.connect(
+        host=DB_CONFIG["host"],
+        port=DB_CONFIG["port"],
+        dbname=DB_CONFIG["database"],
+        user=DB_CONFIG["user"],
+        password=DB_CONFIG["password"],
+    )
 
 SQL_GET_MIL_TWEETS = """
     SELECT
@@ -134,67 +154,68 @@ def extract_triplet(summary_text: str, countries: list[str]) -> dict | None:
         return None
 
 
-def generate_aggressor(cur, conn):
-    """
-    Parcourt les tweets militaires récents, extrait le triplet agresseur/action/cible
-    via LLM et insère les résultats dans MILITARY_ACTIONS.
-    Les tweets déjà traités sont ignorés.
-    """
-    tweets, country_dict, already_processed = fetch_aggressor_data(cur)
-    countries = list(country_dict.keys())
+def generate_aggressor():
+    conn = get_db_connection()
+    cur = conn.cursor()
 
-    for row in tweets:
-        tweet_id, date, summary, loc_name, lon_tweet, lat_tweet = row
+    try:
+        tweets, country_dict, already_processed = fetch_aggressor_data(cur)
+        countries = list(country_dict.keys())
 
-        # Ignore les tweets déjà présents dans MILITARY_ACTIONS
-        if tweet_id in already_processed:
-            continue
+        for row in tweets:
+            tweet_id, date, summary, loc_name, lon_tweet, lat_tweet = row
 
-        resultat = extract_triplet(summary, countries)
+            if tweet_id in already_processed:
+                continue
 
-        if not resultat:
-            continue
+            resultat = extract_triplet(summary, countries)
+            if not resultat:
+                continue
 
-        aggressor = keep_first_entity(resultat.get("actor"))
-        action    = resultat.get("action")
-        target    = keep_first_entity(resultat.get("target"))
+            aggressor = keep_first_entity(resultat.get("actor"))
+            action    = resultat.get("action")
+            target    = keep_first_entity(resultat.get("target"))
 
-        # On n'insère que si l'agresseur est un pays reconnu dans notre référentiel
-        if not country_dict.get(aggressor):
-            continue
+            if not country_dict.get(aggressor):
+                continue
 
-        aggressor_coords = country_dict.get(aggressor)
-        target_coords    = country_dict.get(target)
+            aggressor_coords = country_dict.get(aggressor)
+            target_coords    = country_dict.get(target)
 
-        aggressor_geom = None
-        target_geom    = None
+            aggressor_geom = None
+            if aggressor_coords:
+                lon, lat = aggressor_coords[1]
+                aggressor_geom = f"SRID=4326;POINT({lon} {lat})"
 
-        if aggressor_coords:
-            lon, lat = aggressor_coords[1]
-            aggressor_geom = f"SRID=4326;POINT({lon} {lat})"
+            target_geom = f"SRID=4326;POINT({lon_tweet} {lat_tweet})"
 
-        # La géométrie cible utilise les coordonnées du tweet (lieu de l'événement)
-        target_geom = f"SRID=4326;POINT({lon_tweet} {lat_tweet})"
+            print(f"{aggressor} {aggressor_coords}  --[{action}]--> {target} {target_coords}")
 
-        print(f"{aggressor} {aggressor_coords}  --[{action}]--> {target} {target_coords}")
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO MILITARY_ACTIONS
+                        (TWEET_ID, AGGRESSOR, TARGET, ACTION, AGGRESSOR_GEOM, TARGET_GEOM)
+                    VALUES
+                        (%s, %s, %s, %s, ST_GeomFromEWKT(%s), ST_GeomFromEWKT(%s))
+                    ON CONFLICT (TWEET_ID) DO UPDATE SET
+                        AGGRESSOR      = EXCLUDED.AGGRESSOR,
+                        TARGET         = EXCLUDED.TARGET,
+                        ACTION         = EXCLUDED.ACTION,
+                        AGGRESSOR_GEOM = EXCLUDED.AGGRESSOR_GEOM,
+                        TARGET_GEOM    = EXCLUDED.TARGET_GEOM
+                    """,
+                    (tweet_id, aggressor, target, action, aggressor_geom, target_geom),
+                )
+                conn.commit()
+            except Exception as e:
+                conn.rollback()
+                print(f"Erreur insert tweet {tweet_id} : {e}")
 
-        try:
-            cur.execute(
-                """
-                INSERT INTO MILITARY_ACTIONS
-                    (TWEET_ID, AGGRESSOR, TARGET, ACTION, AGGRESSOR_GEOM, TARGET_GEOM)
-                VALUES
-                    (%s, %s, %s, %s, ST_GeomFromEWKT(%s), ST_GeomFromEWKT(%s))
-                ON CONFLICT (TWEET_ID) DO UPDATE SET
-                    AGGRESSOR      = EXCLUDED.AGGRESSOR,
-                    TARGET         = EXCLUDED.TARGET,
-                    ACTION         = EXCLUDED.ACTION,
-                    AGGRESSOR_GEOM = EXCLUDED.AGGRESSOR_GEOM,
-                    TARGET_GEOM    = EXCLUDED.TARGET_GEOM
-                """,
-                (tweet_id, aggressor, target, action, aggressor_geom, target_geom),
-            )
-            conn.commit()
-        except Exception as e:
-            conn.rollback()
-            print(f"Erreur insert tweet {tweet_id} : {e}")
+    finally:
+        cur.close()
+        conn.close()
+
+
+if __name__ == "__main__":
+    generate_aggressor()
