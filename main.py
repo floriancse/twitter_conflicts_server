@@ -436,9 +436,9 @@ def get_tension_index(
 
 @app.get("/api/twitter_conflicts/military_actions.geojson")
 def get_military_actions(
-    start_date: datetime = Query(..., description="Date de début (ISO 8601, ex: 2026-02-14T00:00:00Z)"),
-    end_date: datetime = Query(..., description="Date de fin (ISO 8601, ex: 2026-02-15T23:59:59Z)"),
     aggressor: Optional[str] = None,
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None),
 ):
     """
     Retourne les actions militaires en format GeoJSON (lignes aggressor → target).
@@ -449,16 +449,19 @@ def get_military_actions(
     Returns:
         Response: GeoJSON FeatureCollection
     """
-    conditions = ["t.created_at >= %s AND t.created_at <= %s"]
-    params = [start_date, end_date]
+    conditions = []
+    params = []
+
+    if start_date and end_date:
+        conditions.append("t.created_at >= %s AND t.created_at <= %s")
+        params.extend([start_date, end_date])
 
     if aggressor:
         conditions.append("m.aggressor = %s")
         params.append(aggressor)
 
     conditions.append("ST_MAKELINE(m.aggressor_geom, m.target_geom) IS NOT NULL")
-
-    where_clause = " AND ".join(conditions)
+    where_clause = " AND ".join(conditions) if conditions else "1=1"
 
     query = f"""
         SELECT
