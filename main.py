@@ -502,7 +502,7 @@ def get_aggressor_range(
         SELECT
             JSON_BUILD_OBJECT(
                 'type', 'FeatureCollection',
-                'features', COALESCE(JSON_AGG(
+                'features', JSON_BUILD_ARRAY(
                     JSON_BUILD_OBJECT(
                         'type', 'Feature',
                         'geometry', ST_ASGEOJSON(
@@ -518,10 +518,12 @@ def get_aggressor_range(
                             'aggressor', aggressor
                         )
                     )
-                ), '[]'::JSON)
+                )
             )
-        FROM military_actions
-        WHERE aggressor = %s;
+        FROM MILITARY_ACTIONS
+        WHERE AGGRESSOR = %s
+        ORDER BY ST_DISTANCE(aggressor_geom, target_geom) DESC
+        LIMIT 1;
     """
     with get_db() as conn:
         cur = conn.cursor()
