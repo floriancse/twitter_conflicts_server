@@ -472,18 +472,18 @@ def get_military_actions(
                         'type', 'Feature',
                         'geometry', ST_AsGeoJSON(ST_MAKELINE(m.aggressor_geom, m.target_geom))::JSON,
                         'properties', JSON_BUILD_OBJECT(
-                            'tweet_id',   m.tweet_id,
-                            'created_at', t.created_at::DATE,
-                            'aggressor',  m.aggressor,
-                            'target',     m.target,
-                            'action',     m.action
+                            'aggressor', m.aggressor,
+                            'target', m.target,
+                            'count', COUNT(*),
+                            'actions', JSON_AGG(DISTINCT m.action)
                         )
                     )
                 ), '[]'::JSON)
             )
         FROM public.military_actions m
         LEFT JOIN public.tweets t ON t.tweet_id = m.tweet_id
-        WHERE {where_clause};
+        WHERE {where_clause}
+        GROUP BY m.aggressor_geom, m.target_geom, m.aggressor, m.target;
     """
 
     with get_db() as conn:
