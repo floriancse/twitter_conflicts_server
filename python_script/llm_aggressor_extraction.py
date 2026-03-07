@@ -66,32 +66,55 @@ client = OpenAI(
 
 
 def build_prompt(countries: list[str]) -> str:
-    """
-    Prompt amélioré : gestion explicite des nationalités + anti-hallucination.
-    """
     liste_formatee = ", ".join(f'"{p}"' for p in countries)
     return f"""You are an OSINT analyst. Respond ONLY in JSON.
         From a conflict summary, extract WHO did WHAT to WHOM.
+
         IMPORTANT: actor and target MUST be chosen EXACTLY (copy-paste) from this list of countries:
         {liste_formatee}
 
-        RULES (follow strictly):
-        - actor and target = country name EXACTLY as written in the list above.
-        - If the text uses a nationality adjective, map it automatically to the country:
-        • Ukrainian, Ukrainians, Ukrainian Air Force → "Ukraine"
-        • Russian, Russians → "Russie"
-        • Israeli, Israelis → "Israël"
-        • Iranian, Iranians → "Iran"
-        • British, UK → "Royaume-Uni"
-        • American, US → "États-Unis"
-        (use common sense for any other nationality)
-        - Military units, forces, drones, helicopters, crews, bases = NEVER actor or target. Always use the owning country.
-        - Example: "Ukrainian Air Force helicopter crew intercepts Russian Shahed-136 drones" → actor="Ukraine", target="Russia"
-        - Passive voice: still put the real actor (e.g. "base was struck by Iran" → actor="Iran")
-        - Joint action: pick the first/most prominent country named.
-        - Multiple targets: pick only the primary one.
-        - If no match possible in the list → null
-        - Never output a city, a military unit, or anything not in the list.
+        ━━━ RULE 1 — ACTOR = the country whose military/personnel performs the action ━━━
+        - The actor is determined by WHO operates/controls the forces, NOT by equipment origin.
+        - If Ukraine uses French Mirage jets → actor = "Ukraine" (Ukraine operates them)
+        - If France uses its own Rafales → actor = "France"
+        - Equipment brand, manufacturer, or supplier country is NEVER the actor.
+        - Military units, drones, missiles = never actor or target. Always use the controlling country.
+
+        ━━━ RULE 2 — TARGET = the ENEMY/THREAT, not the ally being protected ━━━
+        - In a DEFENSIVE mission: target = the aggressor/attacker being repelled, NOT the ally being defended.
+        - "France defends UAE against Iran" → actor="France", target="Iran"  ✓  (NOT target="UAE")
+        - "France intercepts Iranian drones headed to UAE" → actor="France", target="Iran"  ✓
+        - "US Patriot batteries protect Poland from Russian missiles" → actor="États-Unis", target="Russie"  ✓
+        - Keywords signaling defense: defend, protect, intercept, escort, shield, shoot down, destroy inbound
+        → In all these cases, target = the threatening country
+
+        ━━━ RULE 3 — NATIONALITY → COUNTRY MAPPING ━━━
+        - Ukrainian, Ukrainians, Ukrainian Air Force → "Ukraine"
+        - Russian, Russians → "Russie"
+        - Israeli, Israelis → "Israël"
+        - Iranian, Iranians → "Iran"
+        - British, UK → "Royaume-Uni"
+        - American, US → "États-Unis"
+        - French → "France"
+        - Emirati, UAE → "Émirats arabes unis"
+        (apply common sense for any other nationality)
+
+        ━━━ RULE 4 — EDGE CASES ━━━
+        - Passive voice: identify the real actor (e.g. "base was struck by Iran" → actor="Iran")
+        - Joint action: pick the first/most prominent country named
+        - Multiple targets: pick the primary enemy/threat
+        - No match possible in the list → null
+        - Never output a city, military unit, or anything not in the list
+
+        ━━━ EXAMPLES ━━━
+        ✓ "Ukrainian Air Force uses French Mirage 2000 for strikes on Russian positions"
+        → actor="Ukraine", action="offensive strikes", target="Russie"
+
+        ✓ "French Rafales conduct combat missions in UAE to defend against Iranian attacks"
+        → actor="France", action="defensive combat missions", target="Iran"
+
+        ✓ "French jets intercept Iranian drones en route to UAE"
+        → actor="France", action="intercept and destroy drones", target="Iran"
 
         Output format (strict JSON, no markdown, no extra text):
         {{

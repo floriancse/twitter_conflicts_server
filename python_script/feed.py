@@ -17,6 +17,7 @@ from time import gmtime, strftime
 from delete_db_duplicates import delete_dup_rows
 from llm_aggressor_extraction import generate_aggressor
 from llm_daily_summary import run_daily_summary
+from save_tension_snapshot import save_tension_snapshot
 
 load_dotenv()
 
@@ -35,7 +36,8 @@ DB_CONFIG = {
 
 SOURCES = [
     "@GeoConfirmed", "@sentdefender", "@OSINTWarfare",
-    "@Osinttechnical", "@Conflict_Radar", "@Globalsurv", "@NOELreports"
+    "@Osinttechnical", "@Conflict_Radar", "@Globalsurv", "@NOELreports",
+    "@wartranslated","@sudanwarmonitor"
 ]
 
 # ==============================================================================
@@ -158,6 +160,7 @@ for source in SOURCES:
 cur.execute(SQL_REFRESH_TENSION_MV)
 conn.commit()
 
+save_tension_snapshot()
 delete_dup_rows()
 generate_aggressor()
 run_daily_summary()

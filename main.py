@@ -92,45 +92,6 @@ app.add_middleware(
 )
 
 
-@app.get("/api/twitter_conflicts/disputed_areas.geojson")
-def get_disputed_areas():
-    """
-    Retourne les zones de conflit/contestées en format GeoJSON.
-    
-    Utilise les fonctions PostGIS pour convertir les géométries PostgreSQL
-    en GeoJSON standard compatible avec les bibliothèques cartographiques (Leaflet, Mapbox).
-    
-    Returns:
-        Response: GeoJSON FeatureCollection contenant les polygones des zones disputées
-    """
-    with get_db() as conn:
-        cur = conn.cursor()
-
-        cur.execute(
-            """
-            SELECT json_build_object(
-                'type', 'FeatureCollection',
-                'features', json_agg(
-                    json_build_object(
-                        'type', 'Feature',
-                        'geometry', ST_AsGeoJSON(ST_Simplify(geom, 0.01), 4)::JSON,
-                        'properties', json_build_object(
-                            'id', id,
-                            'name', name
-                        )
-                    )
-                )
-            )
-            FROM public.disputed_areas;
-        """
-        )
-
-        geojson_data = cur.fetchone()[0]
-        cur.close()
-
-    return Response(content=json.dumps(geojson_data), media_type="application/json")
-
-
 @app.get("/api/twitter_conflicts/world_areas.geojson")
 def get_world_areas():
     with get_db() as conn:
@@ -163,6 +124,50 @@ def get_world_areas():
         content=compact_geojson,
         media_type="application/json"
     )
+
+
+@app.get("/api/twitter_conflicts/current_frontline.geojson")
+def get_current_frontline():
+    """
+    """
+    with get_db() as conn:
+        cur = conn.cursor()
+
+        cur.execute(
+            """
+            SELECT JSON_AGG(
+                JSON_BUILD_OBJECT(
+                    'aggressor', AGGRESSOR,
+                    'target', TARGET,
+                    'intersection', ST_ASGEOJSON(INTERSECTION_GEOM)::json
+                )
+            ) AS result
+            FROM (
+                SELECT
+                    AGGRESSOR,
+                    TARGET,
+                    ST_INTERSECTION(A.GEOM, B.GEOM) AS INTERSECTION_GEOM
+                FROM
+                    MILITARY_ACTIONS M
+                    LEFT JOIN WORLD_AREAS A ON M.AGGRESSOR = A.ENTITY_NAME
+                    LEFT JOIN WORLD_AREAS B ON M.TARGET = B.ENTITY_NAME
+                    LEFT JOIN TWEETS T ON M.TWEET_ID = T.TWEET_ID
+                WHERE
+                    TARGET IS NOT NULL
+                    AND ST_INTERSECTS(A.GEOM, B.GEOM)
+                    AND CREATED_AT >= NOW() - INTERVAL '14 days'
+                GROUP BY
+                    AGGRESSOR,
+                    TARGET,
+                    ST_INTERSECTION(A.GEOM, B.GEOM)
+            ) sub;
+        """
+        )
+
+        geojson_data = cur.fetchone()[0]
+        cur.close()
+
+    return Response(content=json.dumps(geojson_data), media_type="application/json")
 
 
 @app.get("/api/twitter_conflicts/shipping_lanes.geojson")
