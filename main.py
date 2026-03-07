@@ -139,14 +139,14 @@ def get_current_frontline():
                 JSON_BUILD_OBJECT(
                     'aggressor', AGGRESSOR,
                     'target', TARGET,
-                    'intersection', ST_ASGEOJSON(INTERSECTION_GEOM)::json
+                    'intersection', ST_ASGEOJSON(geom.geom)::json
                 )
             ) AS result
             FROM (
                 SELECT
                     AGGRESSOR,
                     TARGET,
-                    ST_INTERSECTION(A.GEOM, B.GEOM) AS INTERSECTION_GEOM
+                    ST_LineMerge(ST_CollectionExtract(ST_INTERSECTION(A.GEOM, B.GEOM), 2)) AS INTERSECTION_GEOM
                 FROM
                     MILITARY_ACTIONS M
                     LEFT JOIN WORLD_AREAS A ON M.AGGRESSOR = A.ENTITY_NAME
@@ -160,7 +160,8 @@ def get_current_frontline():
                     AGGRESSOR,
                     TARGET,
                     ST_INTERSECTION(A.GEOM, B.GEOM)
-            ) sub;
+            ) sub,
+            LATERAL ST_DUMP(INTERSECTION_GEOM) AS geom;
         """
         )
 
