@@ -135,11 +135,17 @@ def get_current_frontline():
 
         cur.execute(
             """
-            SELECT JSON_AGG(
-                JSON_BUILD_OBJECT(
-                    'aggressor', AGGRESSOR,
-                    'target', TARGET,
-                    'intersection', ST_ASGEOJSON(geom.geom)::json
+            SELECT JSON_BUILD_OBJECT(
+                'type', 'FeatureCollection',
+                'features', JSON_AGG(
+                    JSON_BUILD_OBJECT(
+                        'type', 'Feature',
+                        'properties', JSON_BUILD_OBJECT(
+                            'aggressor', AGGRESSOR,
+                            'target', TARGET
+                        ),
+                        'geometry', ST_ASGEOJSON(geom.geom)::json
+                    )
                 )
             ) AS result
             FROM (
