@@ -140,11 +140,11 @@ SELECT JSON_BUILD_OBJECT(
     'features', JSON_AGG(
         JSON_BUILD_OBJECT(
             'type', 'Feature',
+            'geometry', ST_ASGEOJSON(geom.geom, 4)::json,
             'properties', JSON_BUILD_OBJECT(
                 'aggressor', AGGRESSOR,
                 'target', TARGET
-            ),
-            'geometry', ST_ASGEOJSON(geom.geom)::json
+            )
         )
     )
 ) AS result
