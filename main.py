@@ -135,39 +135,39 @@ def get_current_frontline():
 
         cur.execute(
             """
-            SELECT JSON_BUILD_OBJECT(
-                'type', 'FeatureCollection',
-                'features', JSON_AGG(
-                    JSON_BUILD_OBJECT(
-                        'type', 'Feature',
-                        'properties', JSON_BUILD_OBJECT(
-                            'aggressor', AGGRESSOR,
-                            'target', TARGET
-                        ),
-                        'geometry', ST_ASGEOJSON(geom.geom)::json
-                    )
-                )
-            ) AS result
-            FROM (
-                SELECT
-                    AGGRESSOR,
-                    TARGET,
-                    ST_LineMerge(ST_CollectionExtract(ST_INTERSECTION(A.GEOM, B.GEOM), 2)) AS INTERSECTION_GEOM
-                FROM
-                    MILITARY_ACTIONS M
-                    LEFT JOIN WORLD_AREAS A ON M.AGGRESSOR = A.ENTITY_NAME
-                    LEFT JOIN WORLD_AREAS B ON M.TARGET = B.ENTITY_NAME
-                    LEFT JOIN TWEETS T ON M.TWEET_ID = T.TWEET_ID
-                WHERE
-                    TARGET IS NOT NULL
-                    AND ST_INTERSECTS(A.GEOM, B.GEOM)
-                    AND CREATED_AT >= NOW() - INTERVAL '14 days'
-                GROUP BY
-                    AGGRESSOR,
-                    TARGET,
-                    ST_INTERSECTION(A.GEOM, B.GEOM)
-            ) sub,
-            LATERAL ST_DUMP(INTERSECTION_GEOM) AS geom;
+SELECT JSON_BUILD_OBJECT(
+    'type', 'FeatureCollection',
+    'features', JSON_AGG(
+        JSON_BUILD_OBJECT(
+            'type', 'Feature',
+            'properties', JSON_BUILD_OBJECT(
+                'aggressor', AGGRESSOR,
+                'target', TARGET
+            ),
+            'geometry', ST_ASGEOJSON(geom.geom)::json
+        )
+    )
+) AS result
+FROM (
+    SELECT
+        AGGRESSOR,
+        TARGET,
+        ST_LineMerge(ST_CollectionExtract(ST_INTERSECTION(A.GEOM, B.GEOM), 2)) AS INTERSECTION_GEOM
+    FROM
+        MILITARY_ACTIONS M
+        LEFT JOIN WORLD_AREAS A ON M.AGGRESSOR = A.ENTITY_NAME
+        LEFT JOIN WORLD_AREAS B ON M.TARGET = B.ENTITY_NAME
+        LEFT JOIN TWEETS T ON M.TWEET_ID = T.TWEET_ID
+    WHERE
+        TARGET IS NOT NULL
+        AND ST_INTERSECTS(A.GEOM, B.GEOM)
+        AND CREATED_AT >= NOW() - INTERVAL '14 days'
+    GROUP BY
+        AGGRESSOR,
+        TARGET,
+        ST_INTERSECTION(A.GEOM, B.GEOM)
+) sub,
+LATERAL ST_DUMP(INTERSECTION_GEOM) AS geom;
         """
         )
 
