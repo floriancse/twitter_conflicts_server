@@ -179,7 +179,8 @@ def get_current_frontline():
     return Response(
         content=json.dumps(geojson_data),
         media_type="application/geo+json",
-        headers={"Content-Encoding": "identity"}  
+        headers={"Content-Encoding": "identity"} 
+    )
 
 
 @app.get("/api/twitter_conflicts/shipping_lanes.geojson")
