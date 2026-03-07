@@ -135,7 +135,7 @@ def get_current_frontline():
 
         cur.execute(
             """
-SELECT JSON_BUILD_OBJECT(
+ SELECT JSON_BUILD_OBJECT(
     'type', 'FeatureCollection',
     'features', JSON_AGG(
         JSON_BUILD_OBJECT(
@@ -152,7 +152,11 @@ FROM (
     SELECT
         AGGRESSOR,
         TARGET,
-        ST_LineMerge(ST_CollectionExtract(ST_INTERSECTION(A.GEOM, B.GEOM), 2)) AS INTERSECTION_GEOM
+        ST_LineMerge(
+            ST_CollectionExtract(
+                ST_INTERSECTION(A.GEOM, B.GEOM),
+            2)
+        ) AS INTERSECTION_GEOM
     FROM
         MILITARY_ACTIONS M
         LEFT JOIN WORLD_AREAS A ON M.AGGRESSOR = A.ENTITY_NAME
@@ -167,7 +171,9 @@ FROM (
         TARGET,
         ST_INTERSECTION(A.GEOM, B.GEOM)
 ) sub,
-LATERAL ST_DUMP(INTERSECTION_GEOM) AS geom;
+LATERAL ST_DUMP(INTERSECTION_GEOM) AS geom
+WHERE ST_GeometryType(geom.geom) = 'ST_LineString'
+  AND NOT ST_IsEmpty(geom.geom);
         """
         )
 
