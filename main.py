@@ -128,59 +128,55 @@ def get_world_areas():
 
 @app.get("/api/twitter_conflicts/current_frontline.geojson")
 def get_current_frontline():
-    """
-    """
     with get_db() as conn:
         cur = conn.cursor()
-
         cur.execute(
             """
- SELECT JSON_BUILD_OBJECT(
-    'type', 'FeatureCollection',
-    'features', JSON_AGG(
-        JSON_BUILD_OBJECT(
-            'type', 'Feature',
-            'geometry', ST_ASGEOJSON(geom.geom, 4)::json,
-            'properties', JSON_BUILD_OBJECT(
-                'aggressor', AGGRESSOR,
-                'target', TARGET
-            )
+            SELECT JSON_BUILD_OBJECT(
+                'type', 'FeatureCollection',
+                'features', JSON_AGG(
+                    JSON_BUILD_OBJECT(
+                        'type', 'Feature',
+                        'geometry', ST_ASGEOJSON(geom.geom, 4)::json,
+                        'properties', JSON_BUILD_OBJECT(
+                            'aggressor', AGGRESSOR,
+                            'target', TARGET
+                        )
+                    )
+                )
+            ) AS result
+            FROM (
+                SELECT
+                    AGGRESSOR,
+                    TARGET,
+                    ST_LineMerge(
+                        ST_CollectionExtract(
+                            ST_INTERSECTION(A.GEOM, B.GEOM),
+                        2)
+                    ) AS INTERSECTION_GEOM
+                FROM
+                    MILITARY_ACTIONS M
+                    LEFT JOIN WORLD_AREAS A ON M.AGGRESSOR = A.ENTITY_NAME
+                    LEFT JOIN WORLD_AREAS B ON M.TARGET = B.ENTITY_NAME
+                    LEFT JOIN TWEETS T ON M.TWEET_ID = T.TWEET_ID
+                WHERE
+                    TARGET IS NOT NULL
+                    AND ST_INTERSECTS(A.GEOM, B.GEOM)
+                    AND CREATED_AT >= NOW() - INTERVAL '14 days'
+                GROUP BY
+                    AGGRESSOR,
+                    TARGET,
+                    ST_INTERSECTION(A.GEOM, B.GEOM)
+            ) sub,
+            LATERAL ST_DUMP(INTERSECTION_GEOM) AS geom
+            WHERE ST_GeometryType(geom.geom) = 'ST_LineString'
+              AND NOT ST_IsEmpty(geom.geom);
+            """
         )
-    )
-) AS result
-FROM (
-    SELECT
-        AGGRESSOR,
-        TARGET,
-        ST_LineMerge(
-            ST_CollectionExtract(
-                ST_INTERSECTION(A.GEOM, B.GEOM),
-            2)
-        ) AS INTERSECTION_GEOM
-    FROM
-        MILITARY_ACTIONS M
-        LEFT JOIN WORLD_AREAS A ON M.AGGRESSOR = A.ENTITY_NAME
-        LEFT JOIN WORLD_AREAS B ON M.TARGET = B.ENTITY_NAME
-        LEFT JOIN TWEETS T ON M.TWEET_ID = T.TWEET_ID
-    WHERE
-        TARGET IS NOT NULL
-        AND ST_INTERSECTS(A.GEOM, B.GEOM)
-        AND CREATED_AT >= NOW() - INTERVAL '14 days'
-    GROUP BY
-        AGGRESSOR,
-        TARGET,
-        ST_INTERSECTION(A.GEOM, B.GEOM)
-) sub,
-LATERAL ST_DUMP(INTERSECTION_GEOM) AS geom
-WHERE ST_GeometryType(geom.geom) = 'ST_LineString'
-  AND NOT ST_IsEmpty(geom.geom);
-        """
-        )
-
         geojson_data = cur.fetchone()[0]
         cur.close()
-
-    return Response(content=json.dumps(geojson_data), media_type="application/json")
+    
+    return Response(content=json.dumps(geojson_data), media_type="application/geo+json")
 
 
 @app.get("/api/twitter_conflicts/shipping_lanes.geojson")
