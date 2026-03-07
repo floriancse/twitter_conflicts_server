@@ -122,7 +122,7 @@ def get_world_areas():
 
     return Response(
         content=compact_geojson,
-        media_type="application/json"
+        media_type="application/geo+json"
     )
 
 
@@ -176,11 +176,7 @@ def get_current_frontline():
         geojson_data = cur.fetchone()[0]
         cur.close()
     
-    return Response(
-        content=json.dumps(geojson_data),
-        media_type="application/geo+json",
-        headers={"Content-Encoding": "identity"} 
-    )
+    return Response(content=json.dumps(geojson_data), media_type="application/geo+json")
 
 
 @app.get("/api/twitter_conflicts/shipping_lanes.geojson")
@@ -218,7 +214,7 @@ def get_shipping_lanes():
         geojson_data = cur.fetchone()[0]
         cur.close()
 
-    return Response(content=json.dumps(geojson_data), media_type="application/json")
+    return Response(content=json.dumps(geojson_data), media_type="application/geo+json")
 
 
 @app.get("/api/twitter_conflicts/chokepoints.geojson")
@@ -413,7 +409,7 @@ def get_tweets(
         }
         cur.close()
 
-    return Response(content=json.dumps(geojson_data), media_type="application/json")
+    return Response(content=json.dumps(geojson_data), media_type="application/geo+json")
     
 
 @app.get("/api/twitter_conflicts/tension_index")
@@ -513,7 +509,7 @@ def get_military_actions(
         }
         cur.close()
 
-    return Response(content=json.dumps(geojson_data, default=str), media_type="application/json")
+    return Response(content=json.dumps(geojson_data, default=str), media_type="application/geo+json")
 
 @app.get("/api/twitter_conflicts/aggressor_range.geojson")
 def get_aggressor_range(
@@ -554,4 +550,4 @@ def get_aggressor_range(
             "features": []
         }
         cur.close()
-    return Response(content=json.dumps(geojson_data, default=str), media_type="application/json")
+    return Response(content=json.dumps(geojson_data, default=str), media_type="application/geo+json")
