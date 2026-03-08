@@ -516,32 +516,35 @@ def get_aggressor_range(
     aggressor: str = Query(..., description="Nom du pays agresseur (ex: 'Israel')"),
 ):
     query = """
-        SELECT
-            JSON_BUILD_OBJECT(
-                'type', 'FeatureCollection',
-                'features', JSON_BUILD_ARRAY(
-                    JSON_BUILD_OBJECT(
-                        'type', 'Feature',
-                        'geometry', ST_ASGEOJSON(
-                            ST_INTERSECTION(
-                                ST_MAKEENVELOPE(-179, -60, 179, 75, 4326),
-                                ST_BUFFER(
-                                    aggressor_geom,
-                                    ST_DISTANCE(aggressor_geom, target_geom)
+            SELECT
+                JSON_BUILD_OBJECT(
+                    'type', 'FeatureCollection',
+                    'features', JSON_BUILD_ARRAY(
+                        JSON_BUILD_OBJECT(
+                            'type', 'Feature',
+                            'geometry', ST_ASGEOJSON(
+                                ST_INTERSECTION(
+                                    ST_MAKEENVELOPE(-179, -60, 179, 75, 4326),
+                                    ST_Buffer(
+                                        aggressor_geom::geography,
+                                        ST_Distance(
+                                            aggressor_geom::geography,
+                                            target_geom::geography
+                                        )
+                                    )::geometry
                                 )
+                            )::JSON,
+                            'properties', JSON_BUILD_OBJECT(
+                                'aggressor', aggressor
                             )
-                        )::JSON,
-                        'properties', JSON_BUILD_OBJECT(
-                            'aggressor', aggressor
                         )
                     )
                 )
-            )
-        FROM MILITARY_ACTIONS
-        WHERE AGGRESSOR = %s
-        ORDER BY ST_DISTANCE(aggressor_geom, target_geom) DESC
-        LIMIT 1;
-    """
+            FROM MILITARY_ACTIONS
+            WHERE AGGRESSOR = %s
+            ORDER BY ST_Distance(aggressor_geom::geography, target_geom::geography) DESC
+            LIMIT 1;
+        """
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute(query, [aggressor])
