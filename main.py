@@ -526,12 +526,9 @@ def get_aggressor_range(
                                 ST_INTERSECTION(
                                     ST_MAKEENVELOPE(-179, -60, 179, 75, 4326),
                                     ST_Buffer(
-                                        aggressor_geom::geography,
-                                        ST_Distance(
-                                            aggressor_geom::geography,
-                                            target_geom::geography
-                                        )
-                                    )::geometry
+                                        aggressor_geom,
+                                        ST_Distance(aggressor_geom::geography, target_geom::geography) / 111320
+                                    )
                                 )
                             )::JSON,
                             'properties', JSON_BUILD_OBJECT(
