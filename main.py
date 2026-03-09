@@ -451,8 +451,8 @@ def get_tension_index(
 @app.get("/api/twitter_conflicts/military_actions.geojson")
 def get_military_actions(
     aggressor: Optional[str] = None,
-    start_date: Optional[datetime] = Query(None),
-    end_date: Optional[datetime] = Query(None),
+    start_date: datetime = Query(...), 
+    end_date: datetime = Query(...),    
 ):
     """
     Retourne les actions militaires en format GeoJSON (lignes aggressor → target).
@@ -548,4 +548,5 @@ def get_aggressor_range(
             "features": []
         }
         cur.close()
+        
     return Response(content=json.dumps(geojson_data, default=str), media_type="application/geo+json")
