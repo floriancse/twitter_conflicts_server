@@ -64,11 +64,26 @@ Extract concrete geopolitical events from tweets.
 
     If truly no location can be determined even by inference → lat/lon = null, confidence = "low".
      
-  3. TYPOLOGY:
-    MIL: Attack, bombing, strike, shooting, combat, explosion, drone operation
-    POL: Political declaration, official announcement, defense budget, strategic intention, threat, sanction
-    MOVE: Naval/air deployment, ship/aircraft arrival or departure, surveillance flight, airspace restriction, arms transfer
-    OTHER: Civilian seizure, non-military incident, accident
+  3. TYPOLOGY — apply the FIRST matching rule in order:
+    MIL:  A kinetic event that has ALREADY HAPPENED: attack, bombing, strike, shooting, combat, explosion, drone operation.
+          REQUIRES a past or present tense action verb ("destroyed", "struck", "exploded", "fired").
+          NEVER use MIL for plans, discussions, intentions, deployments, or future operations.
+
+    POL:  Any information, discussion, plan, declaration, or decision that has NOT yet resulted in physical action:
+          political statements, official announcements, defense budget, strategic intentions, threats, sanctions,
+          negotiations, intelligence reports, planned operations, arms deals not yet delivered.
+          USE POL when the tweet describes what actors "discussed", "plan to", "consider", "may", "could", "will".
+
+    MOVE: A confirmed physical repositioning of military assets that has ALREADY OCCURRED:
+          naval/air deployment, ship or aircraft arrival/departure, confirmed troop movement,
+          surveillance flight, airspace restriction enforcement, confirmed arms delivery.
+          MOVE = action confirmed, but not yet combat.
+
+    OTHER: Civilian seizure, non-military incident, accident, humanitarian event.
+
+    DECISION RULE — when in doubt between MIL and POL:
+      → If the event is PLANNED, DISCUSSED, or POTENTIAL → POL
+      → If the event ALREADY HAPPENED physically → MIL or MOVE
 
   4. TENSION SCORE (0–5) — geopolitical escalation potential:
     0: Routine/administrative

@@ -516,31 +516,29 @@ def get_aggressor_range(
     aggressor: str = Query(..., description="Nom du pays agresseur (ex: 'Israel')"),
 ):
     query = """
-            SELECT
+        SELECT
                 JSON_BUILD_OBJECT(
                     'type', 'FeatureCollection',
-                    'features', JSON_BUILD_ARRAY(
+                    'features', JSON_AGG(
                         JSON_BUILD_OBJECT(
                             'type', 'Feature',
                             'geometry', ST_ASGEOJSON(
-                                ST_INTERSECTION(
-                                    ST_MAKEENVELOPE(-179, -60, 179, 75, 4326),
-                                    ST_Buffer(
-                                        aggressor_geom,
-                                        ST_Distance(aggressor_geom::geography, target_geom::geography) / 111320
-                                    )
+                                ST_CONVEXHULL(
+                                    ST_COLLECT(TARGET_GEOM, C.GEOM)
                                 )
                             )::JSON,
                             'properties', JSON_BUILD_OBJECT(
-                                'aggressor', aggressor
+                                'entity_name', A.ENTITY_NAME
                             )
                         )
                     )
                 )
-            FROM MILITARY_ACTIONS
-            WHERE AGGRESSOR = %s
-            ORDER BY ST_Distance(aggressor_geom::geography, target_geom::geography) DESC
-            LIMIT 1;
+            FROM
+                MILITARY_ACTIONS M
+                LEFT JOIN WORLD_AREAS A ON ST_INTERSECTS(M.AGGRESSOR_GEOM, A.GEOM)
+                LEFT JOIN WORLD_CAPITALS C ON ST_INTERSECTS(A.GEOM, C.GEOM)
+            WHERE
+                A.ENTITY_NAME = %s
         """
     with get_db() as conn:
         cur = conn.cursor()

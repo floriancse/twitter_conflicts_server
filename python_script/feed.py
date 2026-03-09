@@ -14,7 +14,7 @@ from llm_geocode import extract_events_and_geoloc
 import os
 from dotenv import load_dotenv
 from time import gmtime, strftime
-from delete_db_duplicates import delete_dup_rows
+from delete_db_duplicates import delete_duplicates
 from llm_aggressor_extraction import generate_aggressor
 from llm_daily_summary import run_daily_summary
 from save_tension_snapshot import save_tension_snapshot
@@ -37,7 +37,8 @@ DB_CONFIG = {
 SOURCES = [
     "@GeoConfirmed", "@sentdefender", "@OSINTWarfare",
     "@Osinttechnical", "@Conflict_Radar", "@Globalsurv", "@NOELreports",
-    "@wartranslated","@sudanwarmonitor"
+    "@wartranslated","@sudanwarmonitor","@war_noir","@fabsenbln",
+    "@khorasandiary", "@martinplaut","@BrantPhilip_","@sheehanj920"
 ]
 
 # ==============================================================================
@@ -161,7 +162,7 @@ cur.execute(SQL_REFRESH_TENSION_MV)
 conn.commit()
 
 save_tension_snapshot()
-delete_dup_rows()
+delete_duplicates()
 generate_aggressor()
 run_daily_summary()
 
