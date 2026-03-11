@@ -9,7 +9,7 @@ from collections import defaultdict
 
 load_dotenv()
 
-# ── Database connection ───────────────────────────────────────────────────────
+# ── Connexion à la base de données ────────────────────────────────────────────
 DB_CONFIG = {
     "host":     os.getenv("DB_HOST", "localhost"),
     "port":     int(os.getenv("DB_PORT", "5432")),
@@ -18,16 +18,16 @@ DB_CONFIG = {
     "password": os.getenv("DB_PASSWORD"),
 }
 
-# ── Thresholds ────────────────────────────────────────────────────────────────
-SIM_THRESHOLD     = 0.82   # semantic similarity alone → duplicate
-SIM_GEO_THRESHOLD = 0.72   # lower threshold when tweets are in the same area
-GEO_RADIUS_KM     = 100    # radius in km to consider two tweets "same area"
+# ── Seuils ────────────────────────────────────────────────────────────────────
+SIM_THRESHOLD     = 0.82   # similarité sémantique seule → doublon
+SIM_GEO_THRESHOLD = 0.72   # seuil abaissé si les tweets sont dans la même zone
+GEO_RADIUS_KM     = 50    # rayon en km pour considérer deux tweets dans la "même zone"
 TIME_WINDOW       = timedelta(hours=24)
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Fonctions utilitaires ─────────────────────────────────────────────────────
 def distance_km(c1, c2):
-    """Distance in km between two (lat, lon) points."""
+    """Distance en km entre deux points (lat, lon)."""
     R = 6371.0
     lat1, lon1 = radians(c1[0]), radians(c1[1])
     lat2, lon2 = radians(c2[0]), radians(c2[1])
@@ -37,7 +37,7 @@ def distance_km(c1, c2):
 
 
 def are_duplicates(i, j, sim_matrix, timestamps, typologies, coords):
-    """Return True if tweets i and j are considered duplicates."""
+    """Retourne True si les tweets i et j sont considérés comme doublons."""
     if typologies[i] != typologies[j]:
         return False
     if abs(timestamps[i] - timestamps[j]) > TIME_WINDOW:
@@ -52,25 +52,25 @@ def are_duplicates(i, j, sim_matrix, timestamps, typologies, coords):
 
 def group_duplicates(n, sim_matrix, timestamps, typologies, coords):
     """
-    Groups duplicate tweets transitively.
-    e.g. if A≈B and B≈C, then A, B, C are in the same group
-    even if A and C are not directly similar.
+    Regroupe les tweets doublons de façon transitive.
+    Ex : si A≈B et B≈C, alors A, B et C sont dans le même groupe
+    même si A et C ne sont pas directement similaires.
 
-    How it works: each tweet starts in its own group (parent[i] = i).
-    When i and j are detected as duplicates, their groups are merged.
-    At the end, all tweets in the same group share the same "representative".
+    Fonctionnement : chaque tweet démarre dans son propre groupe (parent[i] = i).
+    Quand i et j sont détectés comme doublons, leurs groupes sont fusionnés.
+    À la fin, tous les tweets du même groupe partagent le même "représentant".
     """
-    parent = list(range(n))  # each tweet is its own representative at first
+    parent = list(range(n))  # chaque tweet est son propre représentant au départ
 
     def find(x):
-        # Walk up to the representative of x's group
+        # Remonte jusqu'au représentant du groupe de x
         while parent[x] != x:
-            parent[x] = parent[parent[x]]  # shortcut to speed things up
+            parent[x] = parent[parent[x]]  # raccourci pour accélérer
             x = parent[x]
         return x
 
     def merge(x, y):
-        # Merge the groups of x and y
+        # Fusionne les groupes de x et y
         parent[find(x)] = find(y)
 
     for i in range(n):
@@ -78,18 +78,18 @@ def group_duplicates(n, sim_matrix, timestamps, typologies, coords):
             if are_duplicates(i, j, sim_matrix, timestamps, typologies, coords):
                 merge(i, j)
 
-    # Collect indices by group
+    # Regroupe les indices par groupe
     groups = defaultdict(list)
     for i in range(n):
         groups[find(i)].append(i)
 
-    return [g for g in groups.values() if len(g) > 1]  # only keep actual groups
+    return [g for g in groups.values() if len(g) > 1]  # ne garde que les vrais groupes
 
 
 def pick_best_tweet(group, tweets):
     """
-    Among a group of duplicates, keep the tweet with the highest importance score.
-    Ties are broken by keeping the oldest (likely the primary source).
+    Parmi un groupe de doublons, conserve le tweet avec le score d'importance le plus élevé.
+    En cas d'égalité, on garde le plus ancien (probablement la source primaire).
     """
     return max(
         group,
@@ -97,7 +97,7 @@ def pick_best_tweet(group, tweets):
     )
 
 
-# ── Main function ─────────────────────────────────────────────────────────────
+# ── Fonction principale ───────────────────────────────────────────────────────
 def delete_duplicates(dry_run=False):
     conn = psycopg2.connect(**DB_CONFIG)
     cur  = conn.cursor()
@@ -119,10 +119,10 @@ def delete_duplicates(dry_run=False):
         rows = cur.fetchall()
 
         if not rows:
-            print("No recent tweets found.")
+            print("Aucun tweet récent trouvé.")
             return
 
-        print(f"{len(rows)} tweets loaded.")
+        print(f"{len(rows)} tweets chargés.")
 
         tweets = [
             {
@@ -136,12 +136,12 @@ def delete_duplicates(dry_run=False):
             for r in rows
         ]
 
-        # Compute semantic similarities
+        # Calcul des similarités sémantiques
         model      = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
         embeddings = model.encode([t["text"] for t in tweets], show_progress_bar=True)
         sim_matrix = cosine_similarity(embeddings)
 
-        # Detect duplicate groups
+        # Détection des groupes de doublons
         groups = group_duplicates(
             n          = len(tweets),
             sim_matrix = sim_matrix,
@@ -150,24 +150,24 @@ def delete_duplicates(dry_run=False):
             coords     = [t["coord"] for t in tweets],
         )
 
-        print(f"{len(groups)} duplicate group(s) found.")
+        print(f"{len(groups)} groupe(s) de doublons trouvé(s).")
 
-        # For each group: keep the best tweet, delete the rest
+        # Pour chaque groupe : on garde le meilleur tweet, on supprime les autres
         to_delete = []
         for group in groups:
             idx_keep = pick_best_tweet(group, tweets)
             for idx in group:
                 if idx != idx_keep:
                     to_delete.append(tweets[idx]["id"])
-            print(f"  Group of {len(group)} → keep {tweets[idx_keep]['id']}, "
-                  f"delete {[tweets[i]['id'] for i in group if i != idx_keep]}")
+            print(f"  Groupe de {len(group)} → on garde {tweets[idx_keep]['id']}, "
+                  f"on supprime {[tweets[i]['id'] for i in group if i != idx_keep]}")
 
-        print(f"{len(to_delete)} tweet(s) to delete.")
+        print(f"{len(to_delete)} tweet(s) à supprimer.")
 
         if to_delete and not dry_run:
             cur.execute("DELETE FROM tweets WHERE tweet_id = ANY(%s)", (to_delete,))
             conn.commit()
-            print("Deletion complete.")
+            print("Suppression terminée.")
 
     finally:
         cur.close()
@@ -178,6 +178,6 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true",
-                        help="Simulate without deleting.")
+                        help="Simulation sans suppression.")
     args = parser.parse_args()
     delete_duplicates(dry_run=args.dry_run)

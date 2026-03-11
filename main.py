@@ -516,38 +516,30 @@ def get_aggressor_range(
     aggressor: str = Query(..., description="Nom du pays agresseur (ex: 'Israel')"),
 ):
     query = """
-        SELECT
-            JSON_BUILD_OBJECT(
-                'type', 'FeatureCollection',
-                'features', JSON_AGG(
-                    JSON_BUILD_OBJECT(
-                        'type', 'Feature',
-                        'geometry', ST_ASGEOJSON(hull)::JSON,
-                        'properties', JSON_BUILD_OBJECT(
-                            'entity_name', entity_name
+            SELECT
+                JSON_BUILD_OBJECT(
+                    'type', 'FeatureCollection',
+                    'features', JSON_AGG(
+                        JSON_BUILD_OBJECT(
+                            'type', 'Feature',
+                            'geometry', ST_ASGEOJSON(hull)::JSON,
+                            'properties', JSON_BUILD_OBJECT(
+                                'entity_name', entity_name
+                            )
                         )
                     )
                 )
-            )
-        FROM (
-            SELECT
-                entity_name,
-                ST_CONVEXHULL(ST_COLLECT(geom)) as hull
             FROM (
-                SELECT A.ENTITY_NAME as entity_name, ST_BUFFER(M.TARGET_GEOM, 1) as geom
+                SELECT
+                    A.ENTITY_NAME as entity_name,
+                    ST_CONVEXHULL(ST_UNION(ST_COLLECT(ST_BUFFER(M.TARGET_GEOM, 1)), ST_BUFFER(C.GEOM, .1))) as hull
                 FROM MILITARY_ACTIONS M
                 LEFT JOIN WORLD_AREAS A ON ST_INTERSECTS(M.AGGRESSOR_GEOM, A.GEOM)
-                WHERE A.ENTITY_NAME = %s
-                
-                UNION ALL
-                
-                SELECT A.ENTITY_NAME, ST_BUFFER(C.GEOM, .1)
-                FROM WORLD_AREAS A
                 LEFT JOIN WORLD_CAPITALS C ON ST_INTERSECTS(A.GEOM, C.GEOM)
                 WHERE A.ENTITY_NAME = %s
-            ) points
-            GROUP BY entity_name
-        ) sub
+                GROUP BY A.ENTITY_NAME, C.GEOM
+                HAVING COUNT(M.TARGET_GEOM) > 0
+            ) sub
     """
     with get_db() as conn:
         cur = conn.cursor()

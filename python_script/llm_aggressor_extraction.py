@@ -79,8 +79,13 @@ def build_prompt(countries: list[str]) -> str:
         - If France uses its own Rafales → actor = "France"
         - Equipment brand, manufacturer, or supplier country is NEVER the actor.
         - Military units, drones, missiles = never actor or target. Always use the controlling country.
+        - ONLY extract if the action is carried out by an OFFICIAL state military or government-directed forces.
+        - Independent militias, rebel groups, or terrorist organizations acting WITHOUT explicit state command → actor = null.
+        - "Hezbollah fires rockets" → actor = null (unless text explicitly states Iranian/Syrian command).
+        - "Iran-directed Houthis attack" → actor = "Iran" ONLY if the text explicitly states state command.
+        - When in doubt between state vs. non-state actor → prefer null over a wrong attribution.
 
-        ━━━ RULE 2 — TARGET = the ENEMY/THREAT, not the ally being protected ━━━
+        ━━━ RULE 2 — TARGET = the ENEMY/THREAT physically struck, not the ally being protected ━━━
         - In a DEFENSIVE mission: target = the aggressor/attacker being repelled, NOT the ally being defended.
         - "France defends UAE against Iran" → actor="France", target="Iran"  ✓  (NOT target="UAE")
         - "France intercepts Iranian drones headed to UAE" → actor="France", target="Iran"  ✓
@@ -88,7 +93,17 @@ def build_prompt(countries: list[str]) -> str:
         - Keywords signaling defense: defend, protect, intercept, escort, shield, shoot down, destroy inbound
         → In all these cases, target = the threatening country
 
-        ━━━ RULE 3 — NATIONALITY → COUNTRY MAPPING ━━━
+        ━━━ RULE 3 — TARGET = THE COUNTRY PHYSICALLY STRUCK, not where consequences are felt ━━━
+        - The target MUST be the country on whose territory the strike/attack physically lands.
+        - A country treating casualties, providing logistics, or feeling downstream effects is NOT the target.
+        - "Iranian strikes hit U.S. bases in Iraq" → target = "Irak" (Iraq is where the strike lands) ✓
+        - "Hospital in Germany treats casualties from Iranian strikes" → target = null (Germany was NOT struck) ✓
+        - "Iranian missiles hit U.S. bases in Qatar" → target = "Qatar" ✓
+        - If the text ONLY mentions secondary effects in a country (treating wounded, supply strain, evacuations, refugees)
+          WITHOUT that country being physically attacked → target = null.
+        - Ask yourself: "Was a weapon physically detonated ON this country's territory?" If no → not the target.
+
+        ━━━ RULE 4 — NATIONALITY → COUNTRY MAPPING ━━━
         - Ukrainian, Ukrainians, Ukrainian Air Force → "Ukraine"
         - Russian, Russians → "Russie"
         - Israeli, Israelis → "Israël"
@@ -99,10 +114,10 @@ def build_prompt(countries: list[str]) -> str:
         - Emirati, UAE → "Émirats arabes unis"
         (apply common sense for any other nationality)
 
-        ━━━ RULE 4 — EDGE CASES ━━━
+        ━━━ RULE 5 — EDGE CASES ━━━
         - Passive voice: identify the real actor (e.g. "base was struck by Iran" → actor="Iran")
         - Joint action: pick the first/most prominent country named
-        - Multiple targets: pick the primary enemy/threat
+        - Multiple targets: pick the primary enemy/threat (the one physically struck)
         - No match possible in the list → null
         - Never output a city, military unit, or anything not in the list
 
@@ -113,8 +128,11 @@ def build_prompt(countries: list[str]) -> str:
         ✓ "French Rafales conduct combat missions in UAE to defend against Iranian attacks"
         → actor="France", action="defensive combat missions", target="Iran"
 
-        ✓ "French jets intercept Iranian drones en route to UAE"
-        → actor="France", action="intercept and destroy drones", target="Iran"
+        ✓ "Hospital in Germany treats casualties from Iranian strikes on U.S. targets in the region"
+        → actor="Iran", action=null, target=null  (Germany not physically struck)
+
+        ✓ "Hezbollah fires rockets into northern Israel"
+        → actor=null, action=null, target=null  (non-state actor, no explicit state command)
 
         Output format (strict JSON, no markdown, no extra text):
         {{
@@ -122,7 +140,6 @@ def build_prompt(countries: list[str]) -> str:
         "action": "string or null",
         "target": "string | null"
         }}"""
-
 
 def fetch_aggressor_data(cur):
     """Récupère les tweets militaires récents, le dictionnaire pays/capitales et les actions déjà traitées."""

@@ -38,7 +38,9 @@ SOURCES = [
     "@GeoConfirmed", "@sentdefender", "@OSINTWarfare",
     "@Osinttechnical", "@Conflict_Radar", "@Globalsurv", "@NOELreports",
     "@wartranslated","@sudanwarmonitor","@war_noir","@fabsenbln",
-    "@khorasandiary", "@martinplaut","@BrantPhilip_","@sheehanj920"
+    "@khorasandiary", "@martinplaut","@BrantPhilip_","@sheehanj920",
+    "@Intelynx","@Wamaps_news","@ADFmagazine","@mintelworld","@SahelAlerte",
+    "@WarMonitor3"
 ]
 
 # ==============================================================================
