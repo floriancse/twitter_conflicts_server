@@ -543,7 +543,7 @@ def get_aggressor_range(
     """
     with get_db() as conn:
         cur = conn.cursor()
-        cur.execute(query, [aggressor, aggressor])
+        cur.execute(query, [aggressor])
         geojson_data = cur.fetchone()[0] or {
             "type": "FeatureCollection",
             "features": []
