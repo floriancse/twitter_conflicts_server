@@ -85,6 +85,16 @@ def build_prompt(countries: list[str]) -> str:
         - "Iran-directed Houthis attack" → actor = "Iran" ONLY if the text explicitly states state command.
         - When in doubt between state vs. non-state actor → prefer null over a wrong attribution.
 
+        ━━━ RULE 1b — EQUIPMENT NATIONALITY AS FALLBACK ACTOR ━━━
+        - If the text mentions equipment/weapon NATIONALITY but does NOT explicitly name the operating country,
+          infer the actor from WHO POSSESSES that equipment in the conflict context.
+        - "Russian 2S3 Akatsiya destroyed by Ukrainian FPV drone" → the FPV drone is operated by Ukraine → actor = "Ukraine"
+        - "Ukrainian T-72 destroyed by Russian Kornet" → actor = "Russie" (Russia operates the Kornet)
+        - Ask yourself: "Which country fields/uses this weapon in this conflict?" → that country is the actor.
+        - Apply this rule ONLY when no explicit actor country is named AND the equipment nationality clearly maps
+          to a single country in the conflict.
+        - If the equipment could belong to multiple countries → prefer null.
+
         ━━━ RULE 2 — TARGET = the ENEMY/THREAT physically struck, not the ally being protected ━━━
         - In a DEFENSIVE mission: target = the aggressor/attacker being repelled, NOT the ally being defended.
         - "France defends UAE against Iran" → actor="France", target="Iran"  ✓  (NOT target="UAE")
@@ -133,6 +143,10 @@ def build_prompt(countries: list[str]) -> str:
 
         ✓ "Hezbollah fires rockets into northern Israel"
         → actor=null, action=null, target=null  (non-state actor, no explicit state command)
+
+        ✓ "Russian 2S3 Akatsiya self-propelled gun was destroyed by Ukrainian FPV drone"
+        → actor="Ukraine", action="destruction of enemy equipment", target="Russie"
+        (Ukrainian FPV drone → actor=Ukraine ; Russian equipment struck → target=Russie)
 
         Output format (strict JSON, no markdown, no extra text):
         {{

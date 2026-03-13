@@ -40,7 +40,7 @@ SOURCES = [
     "@wartranslated","@sudanwarmonitor","@war_noir","@fabsenbln",
     "@khorasandiary", "@martinplaut","@BrantPhilip_","@sheehanj920",
     "@Intelynx","@Wamaps_news","@ADFmagazine","@mintelworld","@SahelAlerte",
-    "@WarMonitor3"
+    "@WarMonitor3","@99Dominik_", "@geo27752"
 ]
 
 # ==============================================================================
@@ -48,8 +48,6 @@ SOURCES = [
 # ==============================================================================
 
 SQL_GET_TWEET_IDS = "SELECT tweet_id FROM tweets"
-
-SQL_REFRESH_TENSION_MV = "REFRESH MATERIALIZED VIEW tension_index_mv"
 
 SQL_INSERT_TWEET_FULL = """
     INSERT INTO public.tweets (
@@ -160,10 +158,8 @@ for source in SOURCES:
             cur.execute(SQL_INSERT_IMAGE, (item["id"], img))
             conn.commit()
 
-cur.execute(SQL_REFRESH_TENSION_MV)
-conn.commit()
 
-save_tension_snapshot()
+save_threat_snapshot()
 delete_duplicates()
 generate_aggressor()
 run_daily_summary()

@@ -1,21 +1,21 @@
 """
-API REST FastAPI pour l'accès aux données OSINT géolocalisées
-==============================================================
+REST API FastAPI for accessing geolocated OSINT data
+=====================================================
 
-Cette API expose les données de tweets OSINT stockées dans PostgreSQL/PostGIS
-via plusieurs endpoints permettant la visualisation cartographique et l'analyse.
+This API exposes OSINT tweet data stored in PostgreSQL/PostGIS
+through several endpoints enabling map visualization and analysis.
 
-Endpoints principaux :
-- /api/twitter_conflicts/tweets.geojson : Tweets géolocalisés (format GeoJSON)
-- /api/twitter_conflicts/usernames : Liste des auteurs actifs
-- /api/twitter_conflicts/important_tweets : Événements stratégiques (importance_score ≥ 4)
-- /api/twitter_conflicts/random_tweets : Échantillon de tweets non géolocalisés
-- /api/twitter_conflicts/disputed_areas.geojson : Zones de conflit (polygones)
+Main endpoints:
+- /api/twitter_conflicts/tweets.geojson      : Geolocated tweets (GeoJSON format)
+- /api/twitter_conflicts/usernames           : List of active authors
+- /api/twitter_conflicts/important_tweets    : Strategic events (importance_score >= 4)
+- /api/twitter_conflicts/random_tweets       : Sample of non-geolocated tweets
+- /api/twitter_conflicts/disputed_areas.geojson : Conflict zones (polygons)
 
-Configuration :
-- Base de données : PostgreSQL avec extension PostGIS
-- CORS : Activé pour développement local 
-- Variables d'environnement : Chargées depuis fichier .env
+Configuration:
+- Database: PostgreSQL with PostGIS exthreat
+- CORS: Enabled for local development
+- Environment variables: Loaded from .env file
 """
 
 from fastapi import FastAPI, Response, Query
@@ -34,22 +34,22 @@ from contextlib import contextmanager
 
 load_dotenv()
 
-# Configuration de la connexion à la base de données PostgreSQL/PostGIS
+# PostgreSQL/PostGIS database connection configuration
 DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "localhost"),          
+    "host": os.getenv("DB_HOST", "localhost"),
     "port": int(os.getenv("DB_PORT", "5432")),
     "dbname": os.getenv("DB_NAME", "twitter_conflicts"),
     "user": os.getenv("DB_USER", "tw_user"),
     "password": os.getenv("DB_PASSWORD"),
     "sslmode": os.getenv("DB_SSLMODE", "disable"),
-    # Keepalives pour éviter les coupures réseau OVH
+    # Keepalives to prevent network disconnections on OVH
     "keepalives": 1,
     "keepalives_idle": 30,
     "keepalives_interval": 5,
     "keepalives_count": 5,
 }
 
-# Pool de connexions : min 2, max 15 connexions simultanées
+# Connection pool: min 2, max 15 simultaneous connections
 connection_pool = pool.ThreadedConnectionPool(
     minconn=2,
     maxconn=15,
@@ -59,10 +59,10 @@ connection_pool = pool.ThreadedConnectionPool(
 @contextmanager
 def get_db():
     """
-    Context manager qui emprunte une connexion du pool et la restitue
-    automatiquement à la fin du bloc, même en cas d'exception.
+    Context manager that borrows a connection from the pool and returns it
+    automatically at the end of the block, even if an exception is raised.
 
-    Usage :
+    Usage:
         with get_db() as conn:
             cur = conn.cursor()
             ...
@@ -77,18 +77,18 @@ def get_db():
 app = FastAPI()
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-# Configuration CORS pour autoriser les requêtes depuis le frontend
+# CORS configuration to allow requests from the frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://127.0.0.1:5500",                 
+        "http://127.0.0.1:5500",
         "http://localhost:5500",
-        "http://localhost:3000",                  
-        "https://floriancse.github.io",          
+        "http://localhost:3000",
+        "https://floriancse.github.io",
     ],
-    allow_credentials=False,       
-    allow_methods=["*"],            
-    allow_headers=["*"],           
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -175,13 +175,15 @@ def get_current_frontline():
         )
         geojson_data = cur.fetchone()[0]
         cur.close()
-    
+
     return Response(content=json.dumps(geojson_data), media_type="application/geo+json")
 
 
 @app.get("/api/twitter_conflicts/shipping_lanes.geojson")
 def get_shipping_lanes():
     """
+    Returns major and middle shipping lanes as a GeoJSON FeatureCollection.
+    Geometries are simplified with a tolerance of 0.01 degrees for performance.
     """
     with get_db() as conn:
         cur = conn.cursor()
@@ -220,6 +222,8 @@ def get_shipping_lanes():
 @app.get("/api/twitter_conflicts/chokepoints.geojson")
 def get_checkpoints():
     """
+    Returns all maritime chokepoints as a GeoJSON FeatureCollection.
+    Each feature includes the chokepoint ID and port name.
     """
     with get_db() as conn:
         cur = conn.cursor()
@@ -255,16 +259,16 @@ def get_checkpoints():
 
 @app.get("/api/twitter_conflicts/usernames")
 def get_usernames(
-    start_date: datetime = Query(..., description="Date de début (ISO 8601, ex: 2026-02-14T00:00:00Z)"),
-    end_date: datetime = Query(..., description="Date de fin (ISO 8601, ex: 2026-02-15T23:59:59Z)")
+    start_date: datetime = Query(..., description="Start date (e.g. 2026-02-14T00:00:00Z)"),
+    end_date: datetime = Query(..., description="End date (e.g. 2026-02-15T23:59:59Z)")
 ):
     """
-    Retourne la liste des auteurs distincts ayant publié des tweets sur une période donnée.
-    
+    Returns the list of distinct authors who published tweets over a given time range.
+
     Args:
-        start_date (datetime): Date de début (ISO 8601 avec timezone) - OBLIGATOIRE
-        end_date (datetime): Date de fin (ISO 8601 avec timezone) - OBLIGATOIRE
-        
+        start_date (datetime): Start date (with timezone) - REQUIRED
+        end_date (datetime): End date (with timezone) - REQUIRED
+
     Returns:
         dict: {"usernames": ["@username1", "@username2", ...]}
     """
@@ -286,10 +290,20 @@ def get_usernames(
 
     return {"usernames": usernames}
 
+
 @app.get("/api/twitter_conflicts/daily_summaries")
 def get_country_summaries(
-    country: str  # annotation manquante (= au lieu de :)
+    country: str
 ):
+    """
+    Returns the last 30 daily summaries for a given country, ordered by most recent first.
+
+    Args:
+        country (str): Country name - REQUIRED
+
+    Returns:
+        dict: {"summaries": [{"date": str, "summary": str}, ...]}
+    """
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute(
@@ -308,7 +322,7 @@ def get_country_summaries(
             (country,)
         )
         summaries = [
-            {"date": row[0], "summary": row[1]}  
+            {"date": row[0], "summary": row[1]}
             for row in cur.fetchall()
         ]
         cur.close()
@@ -317,26 +331,26 @@ def get_country_summaries(
 
 @app.get("/api/twitter_conflicts/tweets.geojson")
 def get_tweets(
-    start_date: datetime = Query(..., description="Date de début (ISO 8601, ex: 2026-02-14T00:00:00Z)"),
-    end_date: datetime = Query(..., description="Date de fin (ISO 8601, ex: 2026-02-15T23:59:59Z)"),
-    q: Optional[str] = None,
-    usernames: Optional[str] = None,
-    area: Optional[str] = None,         
-    format: str = "geojson",                  
-    sort: str = "date_desc",                
-    page: int = 1,
-    size: int = 50
+    start_date: datetime = Query(..., description="Start date (e.g. 2026-02-14T00:00:00Z)"),
+    end_date: datetime = Query(..., description="End date (e.g. 2026-02-15T23:59:59Z)"),
+    q: Optional[str] = Query(None, description="Full-text search query (matches tweet text or username)"),
+    usernames: Optional[str] = Query(None, description="Comma-separated list of authors to filter by"),
+    area: Optional[str] = Query(None, description="Geographic area name to filter by"),
+    format: str = Query("geojson", description="Response format (default: geojson)"),
+    sort: str = Query("date_desc", description="Sort order (default: date_desc)"),
+    page: int = Query(1, description="Page number for pagination"),
+    size: int = Query(50, description="Number of results per page")
 ):
     """
-    Retourne les tweets géolocalisés en format GeoJSON avec filtrage avancé.
-    
+    Returns geolocated tweets as a GeoJSON FeatureCollection with advanced filtering.
+
     Args:
-        start_date (datetime): Date de début - OBLIGATOIRE
-        end_date (datetime): Date de fin - OBLIGATOIRE
-        q (str, optional): Recherche textuelle
-        usernames (str, optional): Liste d'auteurs séparés par virgules
-        area (str, optional): Nom de la zone géographique
-        
+        start_date (datetime): Start date - REQUIRED
+        end_date (datetime): End date - REQUIRED
+        q (str, optional): Full-text search (matches tweet body or username)
+        usernames (str, optional): Comma-separated list of authors
+        area (str, optional): Geographic area name
+
     Returns:
         Response: GeoJSON FeatureCollection
     """
@@ -357,7 +371,7 @@ def get_tweets(
     if area:
         conditions.append("""wa.entity_name = %s""")
         params.append(area)
-        
+
     where_clause = " AND ".join(conditions)
 
     query = f"""
@@ -372,13 +386,13 @@ def get_tweets(
                             'id',               t.tweet_id,
                             'url',              t.tweet_url,
                             'username',         t.username,
-                            'created_at',   t.created_at,
+                            'created_at',       t.created_at,
                             'text',             t.text,
                             'location_accuracy',         t.location_accuracy,
-							'location_name', t.location_name,
-							'latitude', st_y(t.geom),
-							'longitude', st_x(t.geom),
-                            'importance_score',       t.importance_score,
+                            'location_name',    t.location_name,
+                            'latitude',         st_y(t.geom),
+                            'longitude',        st_x(t.geom),
+                            'importance_score',          t.importance_score,
                             'conflict_typology',         t.conflict_typology,
                             'area_name',        wa.entity_name,
                             'images', COALESCE(
@@ -410,56 +424,79 @@ def get_tweets(
         cur.close()
 
     return Response(content=json.dumps(geojson_data), media_type="application/geo+json")
-    
 
-@app.get("/api/twitter_conflicts/tension_index")
-def get_tension_index(
-    area: Optional[str] = None,         
+@app.get("/api/twitter_conflicts/threat_index")
+def get_threat_index(
+    area: Optional[str] = Query(None, description="Geographic area name (e.g. 'Iran')")
 ):
+    """
+    Returns the most recent threat index for a given country.
+
+    Args:
+        area (str, optional): Country name to query
+
+    Returns:
+        dict: country, threat_score, threat_level, event_count, attacks_launched, attacks_received, raw_score, max_severity, snapshot_at
+    """
+    if not area:
+        raise HTTPException(status_code=400, detail="Parameter 'area' is required")
+
     with get_db() as conn:
         cur = conn.cursor()
-
         cur.execute(
             """
-            SELECT *
-            FROM TENSION_INDEX_MV
-            WHERE COUNTRY = %s
+            SELECT
+                snapshot_at,
+                country,
+                threat_score,
+                event_count,
+                attacks_launched,
+                attacks_received,
+                threat_level,
+                raw_score,
+                max_severity
+            FROM country_threat_history
+            WHERE country = %s
+            ORDER BY snapshot_at DESC
+            LIMIT 1
             """,
-            (area, )
+            (area,)
+        )
+        row = cur.fetchone()
+        cur.close()
+
+    if not row:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No threat data found for country: {area}"
         )
 
-        try: 
-            result = cur.fetchone()
-            country = result[0]
-            tension_score = result[1]
-            tension_level = result[2]
-            evenements_json = result[3]
-            cur.close()
-
-            return {
-                "country": country,
-                "tension_score": int(tension_score),
-                "tension_level": tension_level,
-                "evenements": evenements_json
-            }
-            
-        except Exception:
-            cur.close()
-            return None
-
+    return {
+        "snapshot_at":       row[0].isoformat(),
+        "country":           row[1],
+        "threat_score":     int(row[2]),
+        "event_count":       row[3],
+        "attacks_launched":  row[4],
+        "attacks_received":  row[5],
+        "threat_level":      row[6],
+        "raw_score":         float(row[7]),
+        "max_severity":      row[8],
+    }
 
 @app.get("/api/twitter_conflicts/military_actions.geojson")
 def get_military_actions(
-    aggressor: Optional[str] = None,
-    start_date: datetime = Query(...), 
-    end_date: datetime = Query(...),    
+    aggressor: Optional[str] = Query(None, description="Aggressor country name (e.g. 'Russia')"),
+    start_date: datetime = Query(..., description="Start date (e.g. 2026-02-14T00:00:00Z)"),
+    end_date: datetime = Query(..., description="End date (e.g. 2026-02-15T23:59:59Z)"),
 ):
     """
-    Retourne les actions militaires en format GeoJSON (lignes aggressor → target).
+    Returns military actions as a GeoJSON FeatureCollection (lines from aggressor to target).
+
     Args:
-        start_date (datetime): Date de début - OBLIGATOIRE
-        end_date (datetime): Date de fin - OBLIGATOIRE
-        aggressor (str, optional): Nom du pays agresseur
+        start_date (datetime): Start date - REQUIRED
+        end_date (datetime): End date - REQUIRED
+        aggressor (str, optional): Aggressor country name
+
     Returns:
         Response: GeoJSON FeatureCollection
     """
@@ -511,43 +548,133 @@ def get_military_actions(
 
     return Response(content=json.dumps(geojson_data, default=str), media_type="application/geo+json")
 
+
 @app.get("/api/twitter_conflicts/aggressor_range.geojson")
 def get_aggressor_range(
-    aggressor: str = Query(..., description="Nom du pays agresseur (ex: 'Israel')"),
+    aggressor: str = Query(..., description="Aggressor country name (e.g. 'Israel')"),
 ):
+    """
+    Returns the estimated operational range of an aggressor as a convex hull polygon,
+    built from its known target locations buffered by 100 km, plus the aggressor's capital buffered by 10 km.
+
+    Args:
+        aggressor (str): Aggressor country name - REQUIRED
+
+    Returns:
+        Response: GeoJSON FeatureCollection
+    """
     query = """
-            SELECT
-                JSON_BUILD_OBJECT(
-                    'type', 'FeatureCollection',
-                    'features', JSON_AGG(
-                        JSON_BUILD_OBJECT(
-                            'type', 'Feature',
-                            'geometry', ST_ASGEOJSON(hull)::JSON,
-                            'properties', JSON_BUILD_OBJECT(
-                                'entity_name', entity_name
-                            )
-                        )
-                    )
+        SELECT
+    JSON_BUILD_OBJECT(
+        'type', 'FeatureCollection',
+        'features', JSON_AGG(
+            JSON_BUILD_OBJECT(
+                'type', 'Feature',
+                'geometry', ST_ASGEOJSON(hull)::JSON,
+                'properties', JSON_BUILD_OBJECT(
+                    'entity_name', entity_name
                 )
-            FROM (
-                SELECT
-                    A.ENTITY_NAME as entity_name,
-                    ST_CONVEXHULL(ST_UNION(ST_COLLECT(ST_BUFFER(M.TARGET_GEOM, 1)), ST_BUFFER(C.GEOM, .1))) as hull
-                FROM MILITARY_ACTIONS M
-                LEFT JOIN WORLD_AREAS A ON ST_INTERSECTS(M.AGGRESSOR_GEOM, A.GEOM)
-                LEFT JOIN WORLD_CAPITALS C ON ST_INTERSECTS(A.GEOM, C.GEOM)
-                WHERE A.ENTITY_NAME = %s
-                GROUP BY A.ENTITY_NAME, C.GEOM
-                HAVING COUNT(M.TARGET_GEOM) > 0
-            ) sub
+            )
+        )
+    )
+FROM (
+    SELECT
+        A.ENTITY_NAME as entity_name,
+        ST_CONVEXHULL(
+            ST_COLLECT(
+                ARRAY_AGG(
+                    ST_Transform(
+                        ST_Buffer(
+                            ST_Transform(M.TARGET_GEOM, 3857),
+                            100000
+                        ),
+                    4326)
+                )
+                || ARRAY[
+                    ST_Transform(
+                        ST_Buffer(
+                            ST_Transform(C.GEOM, 3857),
+                            10000
+                        ),
+                    4326)
+                   ]
+            )
+        ) as hull
+    FROM MILITARY_ACTIONS M
+    LEFT JOIN WORLD_AREAS A ON ST_INTERSECTS(M.AGGRESSOR_GEOM, A.GEOM)
+    LEFT JOIN WORLD_CAPITALS C ON ST_INTERSECTS(A.GEOM, C.GEOM)
+    WHERE A.ENTITY_NAME = %s
+      AND M.TARGET_GEOM IS NOT NULL
+    GROUP BY A.ENTITY_NAME, C.GEOM
+    HAVING COUNT(M.TARGET_GEOM) > 0
+) sub
     """
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute(query, [aggressor])
-        geojson_data = cur.fetchone()[0] or {
-            "type": "FeatureCollection",
-            "features": []
-        }
+        result = cur.fetchone()[0]
         cur.close()
-        
-    return Response(content=json.dumps(geojson_data, default=str), media_type="application/geo+json")
+
+    if isinstance(result, str):
+        geojson_data = result
+    else:
+        geojson_data = json.dumps(result, default=str)
+
+    return Response(content=geojson_data, media_type="application/geo+json")
+
+
+@app.get("/api/twitter_conflicts/country_threat_history")
+def get_country_threat_history(
+    country: str = Query(..., description="Country name (e.g. 'Iran')")
+):
+    """
+    Returns the historical threat scores for a given country, ordered chronologically.
+
+    Args:
+        country (str): Country name - REQUIRED
+
+    Returns:
+        dict: {"country": str, "history": [{"snapshot_at": str, "threat_score": int, "threat_level": str, "event_count": int, "attacks_launched": int, "attacks_received": int}, ...]}
+    """
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                SNAPSHOT_AT,
+                threat_SCORE,
+                THREAT_LEVEL,
+                EVENT_COUNT,
+                ATTACKS_LAUNCHED,
+                ATTACKS_RECEIVED
+            FROM
+                country_threat_history
+            WHERE
+                COUNTRY = %s
+            ORDER BY
+                SNAPSHOT_AT ASC
+            """,
+            (country,)
+        )
+        rows = cur.fetchall()
+        cur.close()
+
+    if not rows:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No threat history found for country: {country}"
+        )
+
+    history = [
+        {
+            "snapshot_at":       row[0].isoformat(),
+            "threat_score":     row[1],
+            "threat_level":      row[2],
+            "event_count":       row[3],
+            "attacks_launched":  row[4],
+            "attacks_received":  row[5],
+        }
+        for row in rows
+    ]
+
+    return {"country": country, "history": history}
