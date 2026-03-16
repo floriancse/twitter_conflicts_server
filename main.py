@@ -98,17 +98,25 @@ def get_world_areas():
         cur = conn.cursor()
 
         cur.execute("""
-            SELECT JSON_BUILD_OBJECT(
-                'type', 'FeatureCollection',
-                'features', JSON_AGG(
-                    JSON_BUILD_OBJECT(
-                        'type', 'Feature',
-                        'geometry', ST_AsGeoJSON(ST_Simplify(geom, 0.01), 4)::JSON,
-                        'properties', JSON_BUILD_OBJECT('id', id, 'name', entity_name)
+            SELECT
+                JSON_BUILD_OBJECT(
+                    'type',
+                    'FeatureCollection',
+                    'features',
+                    JSON_AGG(
+                        JSON_BUILD_OBJECT(
+                            'type',
+                            'Feature',
+                            'geometry',
+                            ST_ASGEOJSON (ST_SIMPLIFY (GEOM, 0.01), 4)::JSON,
+                            'properties',
+                            JSON_BUILD_OBJECT('id', ID, 'name', ENTITY_NAME, 'threat_level', threat_level)
+                        )
                     )
                 )
-            )
-            FROM PUBLIC.world_areas;
+            FROM
+                WORLD_AREAS WA
+                LEFT JOIN V_COUNTRY_THREAT_SCORE VC ON VC.COUNTRY = WA.ENTITY_NAME
         """)
 
         geojson_data = cur.fetchone()[0]
@@ -389,9 +397,9 @@ def get_tweets(
                             'created_at',       t.created_at,
                             'text',             t.text,
                             'location_accuracy',         t.location_accuracy,
-                            'location_name',    t.location_name,
-                            'latitude',         st_y(t.geom),
-                            'longitude',        st_x(t.geom),
+                            'nominatim_query',    t.nominatim_query,
+                            'latitude',         ROUND(st_y(t.geom)::numeric, 3),
+                            'longitude',        ROUND(st_x(t.geom)::numeric, 3),
                             'importance_score',          t.importance_score,
                             'conflict_typology',         t.conflict_typology,
                             'area_name',        wa.entity_name,
@@ -402,14 +410,16 @@ def get_tweets(
                                     WHERE ti.tweet_id = t.tweet_id
                                 ),
                                 '[]'::JSON
-                            )
+                            ),
+                            'action',
+					        MA.ACTION
                         )
                     )
                 )
             )
         FROM public.tweets t
-        LEFT JOIN public.world_areas wa
-            ON ST_Contains(wa.geom, t.geom)
+        LEFT JOIN public.world_areas wa ON ST_Contains(wa.geom, t.geom)
+        LEFT JOIN MILITARY_ACTIONS MA ON MA.TWEET_ID = T.TWEET_ID
         WHERE {where_clause};
     """
 
@@ -678,3 +688,53 @@ def get_country_threat_history(
     ]
 
     return {"country": country, "history": history}
+
+@app.get("/api/twitter_conflicts/convexhull.geojson")
+def get_convexhull_by_armed_group(group: str = Query(..., description="Armed group name (e.g. JNIM, GSIM, ...)")):
+    """
+    Returns the convex hull of all geolocated tweets mentioning a specific armed group,
+    filtered on military conflict typology and high location accuracy.
+    """
+    with get_db() as conn:
+        cur = conn.cursor()
+
+        cur.execute(
+            """
+            SELECT
+                JSON_BUILD_OBJECT(
+                    'type', 'FeatureCollection',
+                    'features', JSON_AGG(
+                        JSON_BUILD_OBJECT(
+                            'type', 'Feature',
+                            'geometry', ST_ASGEOJSON(hull, 6)::JSON,
+                            'properties', JSON_BUILD_OBJECT(
+                                'group', %s,
+                                'conflict_typology', 'MIL'
+                            )
+                        )
+                    )
+                )
+            FROM (
+                SELECT
+                    ST_CONVEXHULL(ST_COLLECT(GEOM)) AS hull
+                FROM
+                    TWEETS
+                WHERE
+                    CONFLICT_TYPOLOGY = 'MIL'
+                    AND GEOM IS NOT NULL
+                    AND SUMMARY_TEXT IS NOT NULL
+                    AND SUMMARY_TEXT ILIKE %s
+                    AND LOCATION_ACCURACY = 'high'
+            ) sub
+            WHERE hull IS NOT NULL
+            """,
+            (group, f"%{group}%")
+        )
+
+        geojson_data = cur.fetchone()[0]
+        cur.close()
+
+    if geojson_data is None or geojson_data.get("features") is None:
+        raise HTTPException(status_code=404, detail=f"No data found for group '{group}'")
+
+    return Response(content=json.dumps(geojson_data), media_type="application/geo+json")

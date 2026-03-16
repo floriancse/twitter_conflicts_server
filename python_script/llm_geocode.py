@@ -40,8 +40,8 @@ Extract concrete geopolitical events from tweets.
       5. Named sea area → use fallback table below
 
     IMPLICIT LOCATION RULE: If a tweet names a country, facility, or well-known site without an explicit "in [place]" phrase, you MAY infer the location from that entity.
-    Example: "Ukraine destroyed an ammunition depot at the Tochmash plant near Donetsk airport" → location_name = "Tochmash plant, Donetsk, Ukraine", confidence = "high".
-    Example: "UAE struck an Iranian desalination plant" → location_name = "Iran" → use Tehran coords, confidence = "medium".
+    Example: "Ukraine destroyed an ammunition depot at the Tochmash plant near Donetsk airport" → location_label = "Tochmash plant, Donetsk, Ukraine", nominatim_query = "Donetsk, Ukraine", confidence = "high".
+    Example: "UAE struck an Iranian desalination plant" → location_label = "Iran", nominatim_query = "Tehran, Iran", confidence = "medium".
 
     For sea areas: always verify mentally that coordinates are surrounded by water.
 
@@ -63,7 +63,21 @@ Extract concrete geopolitical events from tweets.
     "strait of gibraltar":      (35.9, -5.4)
 
     If truly no location can be determined even by inference → lat/lon = null, confidence = "low".
-     
+
+    LOCATION FIELDS — STRICT RULES:
+      - "location_label": human-readable label, as specific as possible.
+          Examples: "Tochmash plant, Donetsk, Ukraine" / "Kharg Island, Iran" / "Persian Gulf"
+      - "nominatim_query": the string to send directly to the Nominatim search API.
+          * Use the MOST SPECIFIC real geographic name Nominatim can resolve
+          * NEVER include facility names, military jargon, or descriptions
+          * Format: "City, Country" or "Region, Country" or "Country" or sea name only
+          * Use English exonyms (e.g. "Moscow" not "Москва", "Tehran" not "تهران")
+          * Examples:
+              location_label: "Tochmash plant, Donetsk, Ukraine" → nominatim_query: "Donetsk, Ukraine"
+              location_label: "Rimelan base, Al-Hasakah, Syria"  → nominatim_query: "Al-Hasakah, Syria"
+              location_label: "Persian Gulf"                     → nominatim_query: "Persian Gulf"
+              location_label: "Kharg Island, Iran"               → nominatim_query: "Kharg Island, Iran"
+
   3. TYPOLOGY — apply the FIRST matching rule in order:
     MIL:  A kinetic event that has ALREADY HAPPENED: attack, bombing, strike, shooting, combat, explosion, drone operation.
           REQUIRES a past or present tense action verb ("destroyed", "struck", "exploded", "fired").
@@ -92,7 +106,7 @@ Extract concrete geopolitical events from tweets.
     3: Notable escalation risk (infrastructure attack, major deployment, airspace restriction in tension zone)
     4: Major escalation (massive strike, doctrine shift, large naval deployment, cross-border attack between states)
     5: Exceptional threat to regional/global stability (war declaration, WMD use, attack on a nuclear power)
-    
+
     Be conservative: most events score 1–3. Cross-border state-on-state strikes (e.g. UAE striking Iran) score 4–5.
 
   5. CONFIDENCE CALIBRATION:
@@ -107,7 +121,8 @@ Extract concrete geopolitical events from tweets.
           "summary_text": "concise 1-sentence analytical summary.",
           "typology": "MIL | POL | MOVE | OTHER",
           "strategic_importance": 1–5,
-          "location_name": "Most specific English name, comma-separated (e.g. 'Kyiv, Ukraine')",
+          "location_label": "Most specific human-readable label (e.g. 'Tochmash plant, Donetsk, Ukraine')",
+          "nominatim_query": "Nominatim-ready query string (e.g. 'Donetsk, Ukraine')",
           "confidence": "high | medium | low",
           "lat": float or null,
           "lon": float or null

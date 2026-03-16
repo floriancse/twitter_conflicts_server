@@ -1,5 +1,5 @@
 """
-Extraction des triplets (agresseur, action, cible) depuis des résumés de conflits via LLM local (Ollama).
+Extraction of (actor, action, target, objective) quadruplets from conflict summaries via local LLM (Ollama).
 """
 
 import json
@@ -32,7 +32,7 @@ SQL_GET_MIL_TWEETS = """
         TWEET_ID,
         CREATED_AT::DATE,
         SUMMARY_TEXT,
-        LOCATION_NAME,
+        nominatim_query,
         ST_X (GEOM) AS LON,
         ST_Y (GEOM) AS LAT
     FROM
@@ -68,7 +68,7 @@ client = OpenAI(
 def build_prompt(countries: list[str]) -> str:
     liste_formatee = ", ".join(f'"{p}"' for p in countries)
     return f"""You are an OSINT analyst. Respond ONLY in JSON.
-        From a conflict summary, extract WHO did WHAT to WHOM.
+        From a conflict summary, extract WHO did WHAT to WHOM and WHAT WAS TARGETED.
 
         IMPORTANT: actor and target MUST be chosen EXACTLY (copy-paste) from this list of countries:
         {liste_formatee}
@@ -89,7 +89,7 @@ def build_prompt(countries: list[str]) -> str:
         - If the text mentions equipment/weapon NATIONALITY but does NOT explicitly name the operating country,
           infer the actor from WHO POSSESSES that equipment in the conflict context.
         - "Russian 2S3 Akatsiya destroyed by Ukrainian FPV drone" → the FPV drone is operated by Ukraine → actor = "Ukraine"
-        - "Ukrainian T-72 destroyed by Russian Kornet" → actor = "Russie" (Russia operates the Kornet)
+        - "Ukrainian T-72 destroyed by Russian Kornet" → actor = "Russia" (Russia operates the Kornet)
         - Ask yourself: "Which country fields/uses this weapon in this conflict?" → that country is the actor.
         - Apply this rule ONLY when no explicit actor country is named AND the equipment nationality clearly maps
           to a single country in the conflict.
@@ -99,14 +99,14 @@ def build_prompt(countries: list[str]) -> str:
         - In a DEFENSIVE mission: target = the aggressor/attacker being repelled, NOT the ally being defended.
         - "France defends UAE against Iran" → actor="France", target="Iran"  ✓  (NOT target="UAE")
         - "France intercepts Iranian drones headed to UAE" → actor="France", target="Iran"  ✓
-        - "US Patriot batteries protect Poland from Russian missiles" → actor="États-Unis", target="Russie"  ✓
+        - "US Patriot batteries protect Poland from Russian missiles" → actor="United States", target="Russia"  ✓
         - Keywords signaling defense: defend, protect, intercept, escort, shield, shoot down, destroy inbound
         → In all these cases, target = the threatening country
 
         ━━━ RULE 3 — TARGET = THE COUNTRY PHYSICALLY STRUCK, not where consequences are felt ━━━
         - The target MUST be the country on whose territory the strike/attack physically lands.
         - A country treating casualties, providing logistics, or feeling downstream effects is NOT the target.
-        - "Iranian strikes hit U.S. bases in Iraq" → target = "Irak" (Iraq is where the strike lands) ✓
+        - "Iranian strikes hit U.S. bases in Iraq" → target = "Iraq" (Iraq is where the strike lands) ✓
         - "Hospital in Germany treats casualties from Iranian strikes" → target = null (Germany was NOT struck) ✓
         - "Iranian missiles hit U.S. bases in Qatar" → target = "Qatar" ✓
         - If the text ONLY mentions secondary effects in a country (treating wounded, supply strain, evacuations, refugees)
@@ -115,13 +115,13 @@ def build_prompt(countries: list[str]) -> str:
 
         ━━━ RULE 4 — NATIONALITY → COUNTRY MAPPING ━━━
         - Ukrainian, Ukrainians, Ukrainian Air Force → "Ukraine"
-        - Russian, Russians → "Russie"
-        - Israeli, Israelis → "Israël"
+        - Russian, Russians → "Russia"
+        - Israeli, Israelis → "Israel"
         - Iranian, Iranians → "Iran"
-        - British, UK → "Royaume-Uni"
-        - American, US → "États-Unis"
+        - British, UK → "United Kingdom"
+        - American, US → "United States"
         - French → "France"
-        - Emirati, UAE → "Émirats arabes unis"
+        - Emirati, UAE → "United Arab Emirates"
         (apply common sense for any other nationality)
 
         ━━━ RULE 5 — EDGE CASES ━━━
@@ -131,32 +131,42 @@ def build_prompt(countries: list[str]) -> str:
         - No match possible in the list → null
         - Never output a city, military unit, or anything not in the list
 
+        ━━━ RULE 6 — OBJECTIVE = WHAT WAS PHYSICALLY STRUCK OR TARGETED ━━━
+        - Describe the physical target of the attack: military base, airfield, power grid,
+          naval vessel, convoy, ammunition depot, civilian infrastructure, etc.
+        - Be concise, 2-5 words max (e.g. "military airfield", "power grid", "naval base")
+        - If the text mentions no specific target → null
+        - Never repeat the actor or target country name here
+
         ━━━ EXAMPLES ━━━
         ✓ "Ukrainian Air Force uses French Mirage 2000 for strikes on Russian positions"
-        → actor="Ukraine", action="offensive strikes", target="Russie"
+        → actor="Ukraine", action="offensive strikes", target="Russia", objective="military positions"
 
         ✓ "French Rafales conduct combat missions in UAE to defend against Iranian attacks"
-        → actor="France", action="defensive combat missions", target="Iran"
+        → actor="France", action="defensive combat missions", target="Iran", objective=null
 
         ✓ "Hospital in Germany treats casualties from Iranian strikes on U.S. targets in the region"
-        → actor="Iran", action=null, target=null  (Germany not physically struck)
+        → actor="Iran", action=null, target=null, objective=null  (Germany not physically struck)
 
         ✓ "Hezbollah fires rockets into northern Israel"
-        → actor=null, action=null, target=null  (non-state actor, no explicit state command)
+        → actor=null, action=null, target=null, objective=null  (non-state actor, no explicit state command)
 
         ✓ "Russian 2S3 Akatsiya self-propelled gun was destroyed by Ukrainian FPV drone"
-        → actor="Ukraine", action="destruction of enemy equipment", target="Russie"
-        (Ukrainian FPV drone → actor=Ukraine ; Russian equipment struck → target=Russie)
+        → actor="Ukraine", action="destruction of enemy equipment", target="Russia", objective="self-propelled artillery"
+
+        ✓ "Iranian ballistic missiles strike Israeli airbase in the Negev desert"
+        → actor="Iran", action="ballistic missile strike", target="Israel", objective="military airbase"
 
         Output format (strict JSON, no markdown, no extra text):
         {{
         "actor": "string | null",
-        "action": "string or null",
-        "target": "string | null"
+        "action": "string | null",
+        "target": "string | null",
+        "objective": "string | null"
         }}"""
 
 def fetch_aggressor_data(cur):
-    """Récupère les tweets militaires récents, le dictionnaire pays/capitales et les actions déjà traitées."""
+    """Fetches recent military tweets, the country/capital dictionary, and already processed actions."""
     cur.execute(SQL_GET_MIL_TWEETS)
     tweets = cur.fetchall()
 
@@ -172,22 +182,22 @@ def fetch_aggressor_data(cur):
     return tweets, country_dict, already_processed
 
 
-def keep_first_entity(valeur) -> str | None:
+def keep_first_entity(value) -> str | None:
     """
-    Normalise la réponse du LLM en ne conservant qu'une seule entité.
-    Gère les cas où le LLM retourne une liste ou une chaîne avec virgules.
+    Normalizes the LLM response by keeping only a single entity.
+    Handles cases where the LLM returns a list or a comma-separated string.
     """
-    if not valeur:
+    if not value:
         return None
-    if isinstance(valeur, list):
-        return valeur[0].strip() if valeur else None
-    if "," in valeur:
-        return valeur.split(",")[0].strip()
-    return valeur.strip()
+    if isinstance(value, list):
+        return value[0].strip() if value else None
+    if "," in value:
+        return value.split(",")[0].strip()
+    return value.strip()
 
 
 def extract_triplet(summary_text: str, countries: list[str]) -> dict | None:
-    """Envoie un résumé au LLM et retourne le triplet (actor, action, target) extrait."""
+    """Sends a summary to the LLM and returns the extracted (actor, action, target, objective) quadruplet."""
     try:
         response = client.chat.completions.create(
             model="mistral-small:24b",
@@ -204,7 +214,7 @@ def extract_triplet(summary_text: str, countries: list[str]) -> dict | None:
         return json.loads(raw)
 
     except Exception as e:
-        print(f"Erreur extraction LLM : {e}")
+        print(f"LLM extraction error: {e}")
         return None
 
 
@@ -222,13 +232,14 @@ def generate_aggressor():
             if tweet_id in already_processed:
                 continue
 
-            resultat = extract_triplet(summary, countries)
-            if not resultat:
+            result = extract_triplet(summary, countries)
+            if not result:
                 continue
 
-            aggressor = keep_first_entity(resultat.get("actor"))
-            action    = resultat.get("action")
-            target    = keep_first_entity(resultat.get("target"))
+            aggressor = keep_first_entity(result.get("actor"))
+            action    = result.get("action")
+            target    = keep_first_entity(result.get("target"))
+            objective = result.get("objective")
 
             if not country_dict.get(aggressor):
                 continue
@@ -243,28 +254,29 @@ def generate_aggressor():
 
             target_geom = f"SRID=4326;POINT({lon_tweet} {lat_tweet})"
 
-            print(f"{aggressor} {aggressor_coords}  --[{action}]--> {target} {target_coords}")
+            print(f"{aggressor} {aggressor_coords}  --[{action}]--> {target} {target_coords} | objective: {objective}")
 
             try:
                 cur.execute(
                     """
                     INSERT INTO MILITARY_ACTIONS
-                        (TWEET_ID, AGGRESSOR, TARGET, ACTION, AGGRESSOR_GEOM, TARGET_GEOM)
+                        (TWEET_ID, AGGRESSOR, TARGET, ACTION, OBJECTIVE, AGGRESSOR_GEOM, TARGET_GEOM)
                     VALUES
-                        (%s, %s, %s, %s, ST_GeomFromEWKT(%s), ST_GeomFromEWKT(%s))
+                        (%s, %s, %s, %s, %s, ST_GeomFromEWKT(%s), ST_GeomFromEWKT(%s))
                     ON CONFLICT (TWEET_ID) DO UPDATE SET
                         AGGRESSOR      = EXCLUDED.AGGRESSOR,
                         TARGET         = EXCLUDED.TARGET,
                         ACTION         = EXCLUDED.ACTION,
+                        OBJECTIVE      = EXCLUDED.OBJECTIVE,
                         AGGRESSOR_GEOM = EXCLUDED.AGGRESSOR_GEOM,
                         TARGET_GEOM    = EXCLUDED.TARGET_GEOM
                     """,
-                    (tweet_id, aggressor, target, action, aggressor_geom, target_geom),
+                    (tweet_id, aggressor, target, action, objective, aggressor_geom, target_geom),
                 )
                 conn.commit()
             except Exception as e:
                 conn.rollback()
-                print(f"Erreur insert tweet {tweet_id} : {e}")
+                print(f"Insert error for tweet {tweet_id}: {e}")
 
     finally:
         cur.close()

@@ -17,8 +17,9 @@ from time import gmtime, strftime
 from delete_db_duplicates import delete_duplicates
 from llm_aggressor_extraction import generate_aggressor
 from llm_daily_summary import run_daily_summary
-from save_tension_snapshot import save_tension_snapshot
-
+from save_threat_snapshot import save_threat_snapshot
+from nominatim_search import nominatim_geolocation
+from translate_tweet_text import translate_to_english
 load_dotenv()
 
 # ==============================================================================
@@ -40,7 +41,7 @@ SOURCES = [
     "@wartranslated","@sudanwarmonitor","@war_noir","@fabsenbln",
     "@khorasandiary", "@martinplaut","@BrantPhilip_","@sheehanj920",
     "@Intelynx","@Wamaps_news","@ADFmagazine","@mintelworld","@SahelAlerte",
-    "@WarMonitor3","@99Dominik_", "@geo27752"
+    "@WarMonitor3","@99Dominik_", "@geo27752","@L_ThinkTank"
 ]
 
 # ==============================================================================
@@ -53,7 +54,7 @@ SQL_INSERT_TWEET_FULL = """
     INSERT INTO public.tweets (
         tweet_id, created_at, tweet_url, username, text,
         location_accuracy, importance_score, conflict_typology,
-        summary_text, location_name, geom
+        summary_text, nominatim_query, geom
     )
     VALUES (
         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
@@ -110,54 +111,59 @@ for source in SOURCES:
             if not item["description"].startswith("GeoConfirmed "):
                 continue
 
-        desc = item["title"]
+        tweet_text = item["title"]
 
-        if desc.startswith(("RT", "x.com", "Update")):
+        if tweet_text.startswith(("RT", "x.com", "Update")):
             continue
 
         try:
-            llm_to_geocode = extract_events_and_geoloc(desc)
+            llm_to_geocode = extract_events_and_geoloc(tweet_text)
         except Exception as e:
             print("LLM error:", e)
             continue
 
         if llm_to_geocode is None:
-            print(desc, item["link"])
+            print(tweet_text, item["link"])
             continue
 
         events = llm_to_geocode.get("events", [])
-
+        
         if not events:
-            if len(desc) > 50:
+            if len(tweet_text) > 50:
                 cur.execute(SQL_INSERT_TWEET_MINIMAL,
-                    (item["id"], item["date"], item["link"], item["author"], item["title"]))
+                    (item["id"], item["date"], item["link"], item["author"], tweet_text))
                 conn.commit()
             continue
 
+        tweet_text = translate_to_english(tweet_text)
         event = events[0]
 
-        lat               = event.get("lat")
-        lon               = event.get("lon")
+        lat = event.get("lat")
+        lon = event.get("lon")
         strategic_importance = int(event.get("strategic_importance"))
-        typology          = event.get("typology")
-        summary_text      = event.get("summary_text")
-        location_name     = event.get("location_name")
+        typology = event.get("typology")
+        summary_text = event.get("summary_text")
+        nominatim_query = event.get("nominatim_query")
         location_accuracy = event.get("confidence")
-        geom_wkt          = f"POINT({lon} {lat})" if lat and lon else None
+        
+        nominatim_search = nominatim_geolocation(nominatim_query)
 
-        print(location_name, geom_wkt, summary_text)
+        if nominatim_search:
+            lat, lon = nominatim_search[0], nominatim_search[1]
+
+        geom_wkt = f"POINT({lon} {lat})" if lat and lon else None
+        print(nominatim_query, geom_wkt, summary_text)
 
         cur.execute(SQL_INSERT_TWEET_FULL, (
-            item["id"], item["date"], item["link"], item["author"], item["title"],
+            item["id"], item["date"], item["link"], item["author"], tweet_text,
             location_accuracy, strategic_importance, typology,
-            summary_text, location_name, geom_wkt, geom_wkt
+            summary_text, nominatim_query, geom_wkt, geom_wkt
         ))
         conn.commit()
 
         for img in item["images"]:
             cur.execute(SQL_INSERT_IMAGE, (item["id"], img))
             conn.commit()
-
 
 save_threat_snapshot()
 delete_duplicates()
