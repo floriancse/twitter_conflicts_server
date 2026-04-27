@@ -20,7 +20,6 @@ from save_threat_snapshot import save_threat_snapshot
 from nominatim_search import nominatim_geolocation
 from translate_tweet_text import translate_to_english
 from llm_strait_state import save_strait_state
-from get_current_war import get_conflict_theaters, save_snapshot
 load_dotenv()
 
 # ==============================================================================
@@ -192,8 +191,6 @@ flag_duplicates()
 save_threat_snapshot()
 generate_aggressor()
 save_strait_state()
-df = get_conflict_theaters()
-save_snapshot(df)
 
 cur.execute(SQL_INSERT_DAILY_CONFLICTS)
 conn.commit()

@@ -1,93 +1,57 @@
-# OSINT Observer
+# OSINT Event Collection and Geolocation System
 
-Système automatisé de collecte, géolocalisation et visualisation d'événements géopolitiques à partir de sources OSINT Twitter.
+This project is a specialized OSINT (Open Source Intelligence) pipeline designed to collect, process, and geolocate conflict-related events from social media sources. It leverages Large Language Models (LLMs) and geolocation services to transform raw text into structured geospatial data stored in a PostgreSQL/PostGIS database.
 
-## Vue d'ensemble
+## Table of Contents
 
-Ce projet collecte des tweets de sources OSINT (Open Source Intelligence, ou Renseignement d’Origine Sources Ouvertes), extrait les informations géopolitiques et militaires via IA, géolocalise les événements et expose les données via une API REST. <br />
-Démo live Open-Source (MapLibre GL JS) : https://floriancse.github.io/osint-observer/
+* System Overview
+* Key Features
+* Prerequisites
+* Installation
+* Configuration
+* Technical Workflow
+* Database Schema
 
-## Fonctionnalités
+---
 
-- Scraping automatique de flux RSS Nitter
-- Extraction d'événements via LLM local (Ollama + Qwen3-14B)
-- Géolocalisation automatique avec niveau de confiance
-- Classification typologique (MIL/POL/MOVE/OTHER) et importance stratégique (1-5)
-- API REST avec export GeoJSON
-- Filtrage par période, auteur, mots-clés
+## System Overview
 
-## Architecture
+The core script (feed.py) monitors a list of high-profile OSINT sources via an RSS-to-JSON gateway. It filters relevant data, extracts geographic entities, translates content into English, and performs automated threat assessment and duplicate detection.
 
-```
-┌─────────────────┐
-│  Sources OSINT  │ (@GeoConfirmed, @sentdefender, etc.)
-└────────┬────────┘
-         │ RSS Feed
-         ▼
-┌─────────────────┐
-│  RSS Parser     │ (rss_to_json.py)
-│                 │
-└────────┬────────┘
-         │ JSON
-         ▼
-┌─────────────────┐
-│  LLM Qwen3      │ (llm_geocode.py)
-│                 │
-└────────┬────────┘
-         │ (feed.py)
-         ▼
-┌─────────────────┐
-│  PostgreSQL     │
-│  + PostGIS      │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  FastAPI        │ (API REST)
-│  GeoJSON Export │
-└─────────────────┘
-```
+## Key Features
 
-## Technologies
+* **Automated Collection**: Monitors over 30 specialized OSINT sources (e.g., @GeoConfirmed, @sentdefender, @NOELreports).
+* **Dual Geolocation**: Uses LLMs for initial coordinate extraction and falls back to Nominatim for precise query-based geolocation.
+* **Content Processing**: Automatically translates tweets to English and generates concise summaries of military actions.
+* **Data Enrichment**:
+    * **Duplicate Detection**: Flags redundant reports across different sources.
+    * **Aggressor Extraction**: Identifies actors involved in military actions.
+    * **Strategic Analysis**: Saves snapshots of global threat levels and maritime strait statuses.
+* **PostGIS Integration**: Stores spatial data using the WKT format for mapping applications.
 
-- Python 3.x, FastAPI
-- PostgreSQL + PostGIS
-- Ollama + Qwen3-14B
+## Technical Workflow
 
-## Pipeline de traitement
+1. **Ingestion**: Fetches RSS feeds from local gateway and converts them to JSON format.
+2. **Filtering**: Excludes retweets, non-relevant updates, and IDs already present in the database.
+3. **Extraction & Translation**:
+    * The LLM extracts events, coordinates, typology, and strategic importance.
+    * translate_to_english ensures all stored text is in English for consistency.
+4. **Refinement**: Nominatim is queried to validate or improve geographic coordinates.
+5. **Storage**: Data is inserted into the tweets table with geometry points (SRID 4326).
+6. **Post-Processing**:
+    * flag_duplicates(): Cleans the dataset for redundant information.
+    * save_threat_snapshot(): Logs the current global situation.
+    * generate_aggressor(): Populates actor-specific tables and conflict pairs.
 
-1. **Collecte RSS** : Parse les flux Nitter, nettoie le HTML
-2. **Analyse LLM** : Extraction d'événements, classification, géolocalisation
-3. **Insertion** : Stockage PostgreSQL avec géométrie PostGIS
+## Database Schema
 
-### Classification LLM
+The script interacts with several tables to ensure data integrity:
 
-- **MIL** : Événements militaires explicites (bombardements, frappes, combats)
-- **OTHER** : Tous les autres événements
+| Table | Description |
+| :--- | :--- |
+| **tweets** | Core event data, original/translated text, and PostGIS geometry. |
+| **tweet_images** | Links to media associated with specific reports. |
+| **daily_conflict_pairs** | Aggregated daily view of interacting parties (Aggressor vs Target). |
+| **military_actions** | Structured data regarding specific combat operations extracted by LLM. |
 
-### Géolocalisation
-
-- **explicit** : Lieu nommé précisément (confiance high)
-- **inferred** : Zone approximative (confiance medium)
-- **unknown** : Pas de lieu identifiable (null)
-
-### Importance stratégique
-
-1. Événement local/mineur
-2. Événement tactique
-3. Événement opérationnel
-4. Événement stratégique
-5. Événement critique mondial
-
-## Sources OSINT
-
-```python
-sources = [
-    "@GeoConfirmed",
-    "@sentdefender",
-    "@OSINTWarfare",
-    "@Osinttechnical",
-    "@Conflict_Radar",
-    "@ACLEDINFO"
-]
-```
+---
