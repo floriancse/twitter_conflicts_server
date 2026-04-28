@@ -66,12 +66,13 @@ client = OpenAI(
 
 # Closed list of allowed weapon types
 WEAPON_TYPES = [
-    "Drone",
-    "Ballistic missile",
-    "Bombing / airstrike",
-    "Mine",
-    "Gunfire / small arms",
-    "Unidentified weapon",
+    "Drones",
+    "Missiles",
+    "Explosives",
+    "Air Defence",
+    "Military Aviation",
+    "Artillery & Armour",
+    "Small Arms"
 ]
 
 ARMED_GROUPS = [
@@ -160,16 +161,6 @@ def build_system_prompt(countries: list[str]) -> str:
         Pick the single best match:
         {weapon_list}
 
-        - Drone / UAV / FPV / Shahed / OWA-UAV / kamikaze / loitering munition → "Drone"
-        - Ballistic missile / cruise missile / ATACMS / PrSM / MRBM / IRBM / JASSM / anti-ship missile → "Ballistic missile"
-        - Manned aircraft dropping bombs, strafing, or conducting airstrikes → "Bombing / airstrike"
-        - Helicopter gunship strike → "Bombing / airstrike"
-        - Naval/land mine, IED → "Mine"
-        - Rifles, machine guns, small arms, cannon fire, artillery in direct-fire, rocket artillery (Grad, howitzer) → "Gunfire / small arms"
-        - Attack clearly occurred but weapon unspecified or ambiguous → "Unidentified weapon"
-        - Cluster munition submunitions landing on ground → "Unidentified weapon"
-        Never return null for weapon_type on a kinetic event.
-
         ━━━ RULE 5 — OBJECTIVE ━━━
         2–6 words max. The physical thing struck (e.g. "oil terminal", "radar system").
         Return null if nothing specific is mentioned.
@@ -182,7 +173,6 @@ def build_system_prompt(countries: list[str]) -> str:
         actor and target → exactly one value from the lists below, or null:
         Countries: {country_list}
         Armed groups (actor only): {group_list}
-
         weapon_type → exactly one of: {weapon_list}
 
         ━━━ EXAMPLES ━━━

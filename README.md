@@ -2,6 +2,8 @@
 
 This project is a specialized OSINT (Open Source Intelligence) pipeline designed to collect, process, and geolocate conflict-related events from social media sources. It leverages Large Language Models (LLMs) and geolocation services to transform raw text into structured geospatial data stored in a PostgreSQL/PostGIS database.
 
+Live demo available (React / MapLibre / FastAPI) : [https://floriancse.github.io/osint-observer/](https://floriancse.github.io/osint-observer/)
+
 ## Table of Contents
 
 * System Overview

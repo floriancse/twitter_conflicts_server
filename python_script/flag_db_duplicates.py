@@ -126,9 +126,9 @@ def flag_duplicates(dry_run=False):
         print(f"{len(duplicate_groups)} groupe(s) de doublons trouvé(s).")
         print(f"{len(singleton_groups)} tweet(s) isolé(s).")
 
-        # ── Calcul des IDs à marquer True / False ─────────────────────────────
-        duplicate_ids  = []   # tous les membres d'un groupe de doublons → True
-        singleton_ids  = []   # tweets uniques → False
+        duplicate_ids  = []  
+        singleton_ids  = []  
+        kept_from_duplicates = []
 
         for rep, group in duplicate_groups.items():
             idx_keep = pick_best_tweet(group, tweets)
@@ -137,6 +137,7 @@ def flag_duplicates(dry_run=False):
 
             duplicate_ids.extend(dup_ids)
             singleton_ids.append(kept_id)
+            kept_from_duplicates.append(kept_id)
 
         for rep, group in singleton_groups.items():
             singleton_ids.append(tweets[rep]["id"])
@@ -152,7 +153,13 @@ def flag_duplicates(dry_run=False):
                     "UPDATE tweets SET is_duplicate = False WHERE tweet_id = ANY(%s)",
                     (singleton_ids,)
                 )
-
+            
+            if kept_from_duplicates:
+                cur.execute(
+                    "UPDATE tweets SET verified = true WHERE tweet_id = ANY(%s)",
+                    (kept_from_duplicates,)
+                )
+                
             conn.commit()
             print("Marquage terminé.")
         else:

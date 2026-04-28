@@ -528,10 +528,11 @@ def get_important_tweets():
             FROM
                 TWEETS
             WHERE
-                CREATED_AT >= NOW() - INTERVAL '24 hours'
+                CREATED_AT >= NOW() - INTERVAL '48 hours'
                 AND IMPORTANCE_SCORE >= 4
             ORDER BY
-	            RANDOM();
+	            RANDOM()
+            limit 15;
         """)
         rows = cur.fetchall()
         cur.close()
