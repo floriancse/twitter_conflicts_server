@@ -142,6 +142,8 @@ def flag_duplicates(dry_run=False):
         for rep, group in singleton_groups.items():
             singleton_ids.append(tweets[rep]["id"])
 
+        print(f"kept_from_duplicates: {kept_from_duplicates}")
+
         if not dry_run:
             if duplicate_ids:
                 cur.execute(
@@ -168,3 +170,6 @@ def flag_duplicates(dry_run=False):
     finally:
         cur.close()
         conn.close()
+
+if __name__ == "__main__":
+    flag_duplicates()

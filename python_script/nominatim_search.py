@@ -15,14 +15,14 @@ def nominatim_geolocation(q):
     if not features:
         return None
 
-    if q in ['Middle East', 'South Lebanon', 'Palestine', 'Washington, United States', 'Washington, USA', 'New York, United States']:
+    if q in ['Middle East', 'South Lebanon']:
         return None
 
-    data_sorted = sorted(features, key=lambda feature: feature['properties']['place_rank'])
+    data_sorted = sorted(features, key=lambda feature: feature['properties']['importance'], reverse=True)
     geo = data_sorted[0]
     props = geo["properties"]
-    
-    if props["place_rank"] <= 20 and props["importance"] > 0.1:
+
+    if props["importance"] > 0.1 and props["place_rank"] < 26:
         geometry = geo["geometry"]
 
         if geometry["type"] == "Point":
@@ -39,4 +39,4 @@ def nominatim_geolocation(q):
     return None
 
 if __name__ == "__main__":
-    print(nominatim_geolocation(" Bab al-Mandab Strait "))
+    print(nominatim_geolocation("Washington, USA"))

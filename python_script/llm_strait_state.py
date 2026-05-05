@@ -137,14 +137,21 @@ def infer_strait_status(tweets: list[dict], strait_name: str) -> dict:
     }}"""
 
     response = client.chat.completions.create(
-        model="mistral-small:24b",
+        model="qwen36-fixed",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.1,
+        response_format={"type": "json_object"}
     )
 
     raw = response.choices[0].message.content.strip()
-    if "```" in raw:
-        raw = raw.split("```")[1].lstrip("json").strip()
+
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        
+    if raw.startswith("json"):
+        raw = raw[4:]
+
+    raw = raw.strip()
 
     return json.loads(raw)
 

@@ -528,10 +528,11 @@ def get_important_tweets():
             FROM
                 TWEETS
             WHERE
-                CREATED_AT >= NOW() - INTERVAL '48 hours'
+                CREATED_AT >= NOW() - INTERVAL '72 hours'
                 AND IMPORTANCE_SCORE >= 4
+                AND CONFLICT_TYPOLOGY = 'POL'
             ORDER BY
-	            RANDOM()
+	            CREATED_AT desc
             limit 15;
         """)
         rows = cur.fetchall()
@@ -546,6 +547,88 @@ def get_important_tweets():
         for row in rows
     ]}
     return important_tweets
+
+
+@app.get("/topics")
+def get_important_tweets():
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+        SELECT
+            COUNT(TWEET_ID),
+            LABEL,
+            COUNTRIES,
+            ACTIVE,
+            TOPIC_ID,
+            TOPIC_SUMMARY,
+            ST_X (TOPICS.GEOM),
+            ST_Y (TOPICS.GEOM),
+            MAX(TWEETS.CREATED_AT) AS LATEST_UPDATE
+        FROM
+            TWEETS
+            LEFT JOIN TOPICS ON FK_TOPIC = TOPIC_ID
+        WHERE
+            TOPIC_ID IS NOT NULL
+        GROUP BY
+            LABEL,
+            COUNTRIES,
+            ACTIVE,
+            TOPIC_ID,
+            TOPIC_SUMMARY,
+            ST_X (TOPICS.GEOM),
+            ST_Y (TOPICS.GEOM)
+        ORDER BY
+            MAX(TWEETS.CREATED_AT) DESC
+        """)
+        rows = cur.fetchall()
+        cur.close()
+
+    topics = {"topics": [
+        {   
+            "LABEL": row[1],          
+            "COUNTRIES": row[2],    
+            "ACTIVE": row[3], 
+            "TOPIC_ID": row[4],
+            "TOPIC_SUMMARY": row[5],
+            "LNG": row[6],   
+            "LAT": row[7],
+            "LATEST_UPDATE": row[8],
+        }
+        for row in rows
+    ]}
+    return topics
+
+
+@app.get("/topics/{topic_id}/tweets")
+def get_topic_tweets(topic_id: int):
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT
+                TWEET_ID,
+                TWEETS.CREATED_AT,
+                SUMMARY_TEXT
+            FROM
+                TWEETS
+                LEFT JOIN TOPICS ON FK_TOPIC = TOPIC_ID
+            WHERE
+                FK_TOPIC = %s
+            ORDER BY
+                TWEETS.CREATED_AT DESC
+        """, (topic_id,))
+        rows = cur.fetchall()
+        cur.close()
+ 
+    tweets = {"tweets": [
+        {
+            "tweet_id":     row[0],
+            "created_at":   row[1].isoformat(),
+            "summary_text": row[2],
+        }
+        for row in rows
+    ]}
+    return tweets
+
 
 
 @app.get("/conflict_areas.geojson")

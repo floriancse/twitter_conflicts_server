@@ -20,6 +20,7 @@ from save_threat_snapshot import save_threat_snapshot
 from nominatim_search import nominatim_geolocation
 from translate_tweet_text import translate_to_english
 from llm_strait_state import save_strait_state
+from llm_insert_topic import insert_topics
 load_dotenv()
 
 # ==============================================================================
@@ -123,8 +124,12 @@ tweet_in_db = [i[0] for i in cur.fetchall()]
 
 for source in SOURCES:
     print(source)
-    osint_json = parse_to_json(f"http://localhost:8080/{source[1:]}/rss", source)
-    
+
+    try:
+        osint_json = parse_to_json(f"http://localhost:8080/{source[1:]}/rss", source)
+    except Exception as error:
+        print(error)
+
     for item in osint_json["tweets"]:
         if item["id"] in tweet_in_db:
             continue
@@ -191,6 +196,7 @@ flag_duplicates()
 save_threat_snapshot()
 generate_aggressor()
 save_strait_state()
+insert_topics()
 
 cur.execute(SQL_INSERT_DAILY_CONFLICTS)
 conn.commit()

@@ -54,36 +54,14 @@ SKIP: Pure social media metadata (e.g. "Source:", "Thread:", "Breaking:" with no
 
     COORDINATES RULE:
 
-        For Sea Areas: Use the fallback table below.
-        For Land Areas (City, Region, Country): If the location is identified but coordinates aren't in the table, you MUST estimate the decimal coordinates based on your internal knowledge (e.g., center of the city/region or capital of the country).
+        If the location is identified but coordinates, you MUST estimate the decimal coordinates based on your internal knowledge (e.g., center of the city/region or capital of the country).
         NEVER return null if a nominatim_query has been successfully identified.
-
-        Sea area fallback coordinates:
-        "Eastern mediterranean sea": (34.5, 32.0)
-        "Mediterranean sea": (35.0, 18.0)
-        "Strait of Hormuz": (26.5, 56.5)
-        "Persian gulf": (27.0, 51.0)
-        "Red sea": (20.0, 38.0)
-        "Black sea": (43.0, 34.0)
-        "South China sea": (12.0, 113.0)
-        "Taiwan strait": (24.5, 119.5)
-        "Gulf of Aden": (12.5, 47.0)
-        "Arabian sea": (17.0, 65.0)
-        "Baltic sea": (58.0, 19.0)
-        "North sea": (56.0, 3.0)
-        "Bering sea": (58.0, -175.0)
-        "English channel": (50.5, 1.0)
-        "Strait of Gibraltar": (35.9, -5.4)
-        "Caspian sea": (41.8, 50.6)
-        "Eastern Pacific ocean": (0.0, -110.0)
-        "Western Pacific ocean": (15.0, 150.0)
-        "North Atlantic ocean": (40.0, -40.0)
-        "South Atlantic ocean": (-25.0, -20.0)
 
     IMPLICIT LOCATION RULE: If a tweet names a country, facility, or well-known site without an explicit "in [place]" phrase, you MAY infer the location from that entity.
     Example: "Ukraine destroyed an ammunition depot at the Tochmach plant near Donetsk airport" → nominatim_query = "Donetsk, Ukraine", confidence = "high".
 
     If NO location can be determined even by inference (e.g. pure political opinion with no target/actor location) → lat/lon = null, confidence = "low".
+    Note : Attribute de the Strait of Hormuz to Oman (e.g. Strait of Hormuz, Oman)
 
 3. TYPOLOGY — apply the FIRST matching rule in order:
 MIL: A kinetic event that has ALREADY HAPPENED: attack, bombing, strike, shooting, combat, explosion, drone operation.
@@ -142,7 +120,7 @@ If no extractable event → return {"events": []}"""
 def extract_events_and_geoloc(tweet_text: str) -> dict | None:
     try:
         response = client.chat.completions.create(
-            model="gpt-oss:20b",
+            model="qwen36-fixed",
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {
