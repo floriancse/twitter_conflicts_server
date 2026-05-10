@@ -276,7 +276,7 @@ def get_tweets(
     Returns:
         Response: GeoJSON FeatureCollection
     """
-    conditions = ["created_at >= %s AND created_at <= %s"]
+    conditions = ["T.created_at >= %s AND T.created_at <= %s"]
     params = [start_date, end_date]
 
     if q:
@@ -341,14 +341,27 @@ def get_tweets(
                             'verified',
                             verified,
                             'location_source',
-                            location_source
+                            location_source,
+                            'label',
+                            TOP.label
                         )
                     )
                 )
             )
         FROM public.tweets t
-        LEFT JOIN public.world_areas wa ON ST_Contains(wa.geom, t.geom)
-        LEFT JOIN MILITARY_ACTIONS MA ON MA.TWEET_ID = T.TWEET_ID
+        LEFT JOIN LATERAL (
+            SELECT entity_name
+            FROM public.world_areas
+            WHERE ST_Contains(geom, t.geom)
+            LIMIT 1
+        ) wa ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT weapon_type, aggressor, target
+            FROM MILITARY_ACTIONS
+            WHERE TWEET_ID = T.TWEET_ID
+            LIMIT 1
+        ) MA ON TRUE
+        LEFT JOIN TOPICS TOP ON TOP.TOPIC_ID = T.FK_TOPIC
         WHERE {where_clause} AND IS_DUPLICATE = 'false' AND t.GEOM IS NOT NULL;
     """
 
@@ -569,6 +582,7 @@ def get_important_tweets():
             LEFT JOIN TOPICS ON FK_TOPIC = TOPIC_ID
         WHERE
             TOPIC_ID IS NOT NULL
+            AND IMPORTANCE_SCORE >= 4
         GROUP BY
             LABEL,
             COUNTRIES,

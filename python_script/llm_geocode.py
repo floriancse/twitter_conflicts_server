@@ -61,7 +61,8 @@ SKIP: Pure social media metadata (e.g. "Source:", "Thread:", "Breaking:" with no
     Example: "Ukraine destroyed an ammunition depot at the Tochmach plant near Donetsk airport" → nominatim_query = "Donetsk, Ukraine", confidence = "high".
 
     If NO location can be determined even by inference (e.g. pure political opinion with no target/actor location) → lat/lon = null, confidence = "low".
-    Note : Attribute de the Strait of Hormuz to Oman (e.g. Strait of Hormuz, Oman)
+    Note : - Attribute the Strait of Hormuz to Oman (e.g. Strait of Hormuz, Oman), 
+           - Do not attribut Persian Gulf to any country (e.g. Persian Gulf) 
 
 3. TYPOLOGY — apply the FIRST matching rule in order:
 MIL: A kinetic event that has ALREADY HAPPENED: attack, bombing, strike, shooting, combat, explosion, drone operation.
