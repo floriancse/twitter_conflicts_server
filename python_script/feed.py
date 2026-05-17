@@ -21,6 +21,7 @@ from nominatim_search import nominatim_geolocation
 from translate_tweet_text import translate_to_english
 from llm_strait_state import save_strait_state
 from llm_insert_topic import insert_topics
+from llm_daily_summary import summarize_events
 load_dotenv()
 
 # ==============================================================================
@@ -197,6 +198,7 @@ save_threat_snapshot()
 generate_aggressor()
 save_strait_state()
 insert_topics()
+summarize_events()
 
 cur.execute(SQL_INSERT_DAILY_CONFLICTS)
 conn.commit()

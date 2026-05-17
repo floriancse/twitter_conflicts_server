@@ -613,36 +613,29 @@ def get_important_tweets():
     return topics
 
 
-@app.get("/topics/{topic_id}/tweets")
+@app.get("/topics/{topic_id}")
 def get_topic_tweets(topic_id: int):
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT
-                TWEET_ID,
-                TWEETS.CREATED_AT,
-                SUMMARY_TEXT
-            FROM
-                TWEETS
-                LEFT JOIN TOPICS ON FK_TOPIC = TOPIC_ID
-            WHERE
-                FK_TOPIC = %s
-            ORDER BY
-                TWEETS.CREATED_AT DESC
+        SELECT
+            *
+        FROM
+            TOPIC_SUMMARIES
+        WHERE FK_TOPIC = %s
         """, (topic_id,))
         rows = cur.fetchall()
         cur.close()
  
-    tweets = {"tweets": [
+    events = {"tweets": [
         {
             "tweet_id":     row[0],
             "created_at":   row[1].isoformat(),
-            "summary_text": row[2],
+            "summary": row[2],
         }
         for row in rows
     ]}
-    return tweets
-
+    return events
 
 
 @app.get("/conflict_areas.geojson")
