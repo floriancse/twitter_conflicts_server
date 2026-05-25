@@ -131,6 +131,58 @@ def get_shipping_lanes():
     return Response(content=json.dumps(geojson_data), media_type="application/geo+json")
 
 
+@app.get("/world_areas.geojson")
+def get_world_areas():
+    """
+    Returns major and middle shipping lanes as a GeoJSON FeatureCollection.
+    Geometries are simplified with a tolerance of 0.01 degrees for performance.
+    """
+    with get_db() as conn:
+        cur = conn.cursor()
+
+        cur.execute(
+            """
+            SELECT
+                JSON_BUILD_OBJECT(
+                    'type',
+                    'FeatureCollection',
+                    'features',
+                    JSON_AGG(
+                        JSON_BUILD_OBJECT(
+                            'type',
+                            'Feature',
+                            'geometry',
+                            ST_ASGEOJSON (ST_SIMPLIFY (GEOM, 0.01), 4)::JSON,
+                            'properties',
+                            JSON_BUILD_OBJECT('id', ID, 'name', ENTITY_NAME)
+                        )
+                    )
+                )
+            FROM
+                WORLD_AREAS
+            WHERE
+                ENTITY_NAME IN (
+                    SELECT
+                        ENTITY_NAME
+                    FROM
+                        MILITARY_ACTIONS
+                        NATURAL JOIN TWEETS
+                        LEFT JOIN WORLD_AREAS WA ON ST_CONTAINS (WA.GEOM, TWEETS.GEOM)
+                    WHERE
+                        CREATED_AT >= NOW() - INTERVAL '14 days'
+                        AND ENTITY_TYPE != 'marine region'
+                    GROUP BY
+                        ENTITY_NAME
+                )
+        """
+        )
+
+        geojson_data = cur.fetchone()[0]
+        cur.close()
+
+    return Response(content=json.dumps(geojson_data), media_type="application/geo+json")
+
+
 @app.get("/chokepoints.geojson")
 def get_checkpoints():
     """
@@ -632,6 +684,7 @@ def get_topic_tweets(topic_id: int):
             "tweet_id":     row[0],
             "created_at":   row[1].isoformat(),
             "summary": row[2],
+            "summary_title": row[3]
         }
         for row in rows
     ]}
@@ -684,3 +737,38 @@ def get_conflict_areas():
         cur.close()
 
     return Response(content=json.dumps(geojson_data))
+
+
+@app.get("/military_lines.geojson")
+def get_military_lines(
+    country: str = Query(..., description="Nom du pays (AGGRESSOR)"),
+    start_date: datetime = Query(...),
+    end_date: datetime = Query(...)
+):
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT
+                JSON_BUILD_OBJECT(
+                    'type', 'FeatureCollection',
+                    'features', JSON_AGG(
+                        JSON_BUILD_OBJECT(
+                            'type', 'Feature',
+                            'geometry', ST_ASGEOJSON(ST_MAKELINE(AGGRESSOR_GEOM, T.GEOM))::JSON,
+                            'properties', JSON_BUILD_OBJECT('weapon_type', WEAPON_TYPE)
+                        )
+                    )
+                )
+            FROM
+                MILITARY_ACTIONS MA
+                NATURAL JOIN TWEETS T
+            WHERE
+                CREATED_AT >= %s
+                AND CREATED_AT <= %s
+                AND AGGRESSOR = %s
+        """, (start_date, end_date, country))
+
+        geojson_data = cur.fetchone()[0]
+        cur.close()
+
+    return Response(content=json.dumps(geojson_data), media_type="application/geo+json")
