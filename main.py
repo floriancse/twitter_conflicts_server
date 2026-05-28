@@ -772,3 +772,36 @@ def get_military_lines(
         cur.close()
 
     return Response(content=json.dumps(geojson_data), media_type="application/geo+json")
+
+
+@app.get("/graph_events")
+def get_graph_events(
+):
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+        SELECT
+            CREATED_AT::DATE AS DATE,
+            COUNT(CREATED_AT) AS EVENTS
+        FROM
+            TWEETS
+        WHERE
+            CREATED_AT >= NOW() - INTERVAL '30 days'
+            AND GEOM IS NOT NULL
+            AND IS_DUPLICATE = 'false'
+        GROUP BY
+            CREATED_AT::DATE
+        ORDER BY
+            CREATED_AT::DATE DESC
+        OFFSET
+            1
+        """)
+
+        graph_events = cur.fetchall()
+        cur.close()
+        graph_events_data = {}
+        
+        for date, events in graph_events:
+            graph_events_data[date] = events
+
+    return graph_events_data
