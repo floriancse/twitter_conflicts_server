@@ -76,7 +76,7 @@ def build_system_prompt(topic_dict: dict):
     You are an OSINT analyst. Your task is to assign events to a topic.
     
     STRICT RULES:
-    - Only assign a topic if the event EXPLICITLY mentions or CLEARLY relates to that conflict.
+    - Only assign a topic if the event mentions or relates to that conflict.
     - If the event is vague, a test, gibberish, or not clearly related to any topic, you MUST return {{"topic": null}}.
     - Do NOT guess or infer. If you are not 100% sure, return {{"topic": null}}.
     - A single number, word, or unrelated sentence must return {{"topic": null}}.

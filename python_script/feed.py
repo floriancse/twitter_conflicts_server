@@ -43,10 +43,10 @@ SOURCES = [
     "@wartranslated","@sudanwarmonitor","@war_noir","@fabsenbln",
     "@khorasandiary", "@martinplaut","@BrantPhilip_","@sheehanj920",
     "@Intelynx","@Wamaps_news","@ADFmagazine","@mintelworld",
-    "@WarMonitor3","@99Dominik_", "@geo27752","@aamajnews_EN",
+    "@99Dominik_", "@geo27752","@aamajnews_EN",
     "@PakDefence_","@jacksonhinklle","@Archer83Able","@SNAForce",
     "@Myanmar_Now_Eng","@sterrorwatch","@zarGEOINT","@neonhandrail", "@EpicFuryMap",
-    "@BabakTaghvaee1"
+    "@BabakTaghvaee1", "@avivector"
 ]
 
 # ==============================================================================
@@ -173,7 +173,9 @@ for source in SOURCES:
         nominatim_query = event.get("nominatim_query")
         location_accuracy = event.get("confidence")
         location_source = "LLM"
-        nominatim_search = nominatim_geolocation(nominatim_query)
+
+        if source != "@GeoConfirmed":
+            nominatim_search = nominatim_geolocation(nominatim_query)
 
         if nominatim_search:
             lat, lon = nominatim_search[0], nominatim_search[1]

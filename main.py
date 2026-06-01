@@ -231,7 +231,7 @@ def get_checkpoints():
                         CHOKEPOINTS_STATE_HISTORY CS
                         LEFT JOIN CHOKEPOINTS CP ON CP.PORTNAME = CS.PORTNAME
                     WHERE
-                        SNAPSHOT_DATE::DATE = CURRENT_DATE
+                        SNAPSHOT_DATE::DATE = CURRENT_DATE - 1
                 ) AS SUBQUERY;
         """
         )
@@ -805,3 +805,88 @@ def get_graph_events(
             graph_events_data[date] = events
 
     return graph_events_data
+
+
+@app.get("/topics_location.geojson")
+def get_topics_location():
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+        SELECT
+            JSON_BUILD_OBJECT(
+                'type',
+                'FeatureCollection',
+                'features',
+                JSON_AGG(
+                    JSON_BUILD_OBJECT(
+                        'type',
+                        'Feature',
+                        'geometry',
+                        ST_ASGEOJSON (GEOM)::JSON,
+                        'properties',
+                        JSON_BUILD_OBJECT('label', LABEL, 'countries', COUNTRIES, 'topic_summary', TOPIC_SUMMARY, 'topic_id', TOPIC_ID)
+                    )
+                )
+            )
+        FROM
+            (
+            SELECT
+                LABEL,
+                COUNTRIES,
+                TOPIC_SUMMARY,
+                GEOM,
+                TOPIC_ID
+            FROM
+                TOPICS
+            ) SUB;   
+        """)
+
+        geojson_data = cur.fetchone()[0]
+        cur.close()
+
+    return Response(content=json.dumps(geojson_data))
+
+
+@app.get("/topics_areas.geojson")
+def get_topics_areas():
+    with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+        SELECT
+            JSON_BUILD_OBJECT(
+                'type',
+                'FeatureCollection',
+                'features',
+                JSON_AGG(
+                    JSON_BUILD_OBJECT(
+                        'type',
+                        'Feature',
+                        'geometry',
+                        ST_ASGEOJSON (GEOM)::JSON,
+                        'properties',
+                        JSON_BUILD_OBJECT('topic_id', TOPIC_ID, 'label', label)
+                        )
+                )
+            )
+        FROM
+            (
+            SELECT
+                TOPIC_ID,
+                label,
+                ST_UNION (WA.GEOM) AS GEOM
+            FROM
+                TOPICS T
+                JOIN WORLD_AREAS WA ON WA.ENTITY_NAME = ANY (T.COUNTRIES)
+            GROUP BY
+                T.LABEL,
+                T.COUNTRIES,
+                T.TOPIC_SUMMARY,
+                T.TOPIC_ID,
+                T.LABEL
+            ) SUB;   
+        """)
+
+        geojson_data = cur.fetchone()[0]
+        cur.close()
+
+    return Response(content=json.dumps(geojson_data))

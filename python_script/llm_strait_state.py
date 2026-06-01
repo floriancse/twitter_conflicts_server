@@ -165,7 +165,7 @@ def save_strait_state():
 
     results = []
     for strait in STRAITS:
-        tweets = get_strait_tweets(cur, strait, days=14)
+        tweets = get_strait_tweets(cur, strait, days=30)
         status = infer_strait_status(tweets, strait["name"])
         results.append({
             "id":          strait["id"],
