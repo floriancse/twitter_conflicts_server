@@ -176,10 +176,9 @@ for source in SOURCES:
 
         if source != "@GeoConfirmed":
             nominatim_search = nominatim_geolocation(nominatim_query)
-
-        if nominatim_search:
-            lat, lon = nominatim_search[0], nominatim_search[1]
-            location_source = "Nominatim"
+            if nominatim_search:
+                lat, lon = nominatim_search[0], nominatim_search[1]
+                location_source = "Nominatim"
 
         geom_wkt = f"POINT({lon} {lat})" if lat and lon else None
         print(nominatim_query, geom_wkt, summary_text)

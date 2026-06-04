@@ -741,9 +741,6 @@ def get_conflict_areas():
 
 @app.get("/military_lines.geojson")
 def get_military_lines(
-    country: str = Query(..., description="Nom du pays (AGGRESSOR)"),
-    start_date: datetime = Query(...),
-    end_date: datetime = Query(...)
 ):
     with get_db() as conn:
         cur = conn.cursor()
@@ -763,10 +760,8 @@ def get_military_lines(
                 MILITARY_ACTIONS MA
                 NATURAL JOIN TWEETS T
             WHERE
-                CREATED_AT >= %s
-                AND CREATED_AT <= %s
-                AND AGGRESSOR = %s
-        """, (start_date, end_date, country))
+                T.CREATED_AT >= NOW() - INTERVAL '24 hours'
+        """)
 
         geojson_data = cur.fetchone()[0]
         cur.close()
@@ -830,14 +825,21 @@ def get_topics_location():
             )
         FROM
             (
-            SELECT
-                LABEL,
-                COUNTRIES,
-                TOPIC_SUMMARY,
-                GEOM,
-                TOPIC_ID
-            FROM
-                TOPICS
+        SELECT
+            TOPIC_ID,
+            LABEL,
+            COUNTRIES,
+            TOPIC_SUMMARY,
+            ST_CENTROID (ST_COLLECT (ST_BUFFER (T1.GEOM, 1))) AS GEOM
+        FROM
+            TWEETS T1
+            LEFT JOIN TOPICS T2 ON T1.FK_TOPIC = T2.TOPIC_ID
+        WHERE
+            CONFLICT_TYPOLOGY = 'MIL'
+            AND LABEL IS NOT NULL
+        GROUP BY
+            TOPIC_ID,
+            LABEL
             ) SUB;   
         """)
 
@@ -870,20 +872,20 @@ def get_topics_areas():
             )
         FROM
             (
-            SELECT
-                TOPIC_ID,
-                label,
-                ST_UNION (WA.GEOM) AS GEOM
-            FROM
-                TOPICS T
-                JOIN WORLD_AREAS WA ON WA.ENTITY_NAME = ANY (T.COUNTRIES)
-            GROUP BY
-                T.LABEL,
-                T.COUNTRIES,
-                T.TOPIC_SUMMARY,
-                T.TOPIC_ID,
-                T.LABEL
-            ) SUB;   
+        SELECT
+            TOPIC_ID,
+            LABEL,
+            ST_CONVEXHULL (ST_COLLECT (ST_BUFFER (T1.GEOM, 1))) AS GEOM
+        FROM
+            TWEETS T1
+            LEFT JOIN TOPICS T2 ON T1.FK_TOPIC = T2.TOPIC_ID
+        WHERE
+            CONFLICT_TYPOLOGY = 'MIL'
+            AND LABEL IS NOT NULL
+        GROUP BY
+            TOPIC_ID,
+            LABEL
+                    ) SUB;   
         """)
 
         geojson_data = cur.fetchone()[0]
