@@ -22,35 +22,38 @@ client = OpenAI(
 
 SYSTEM_PROMPT = """
 You are an experienced investigative journalist specializing in conflict monitoring and geopolitical affairs.
-Your task is to write a concise journalistic summary of the following events.
+Your task is to identify and report on the single most significant or alarming development among the following events.
 
 Guidelines:
 - CRITICAL: Write in English only. Do not use Chinese, Arabic, French, or any other language.
+- Select ONE standout event — the one with the greatest strategic, humanitarian, or escalatory significance.
 - Write exactly 1 or 2 sentences — no more, no less. One sentence = one idea.
 - Use a clear, factual, and direct journalistic tone (inverted pyramid style: most important facts first)
-- Highlight key actors, locations, and consequences
+- Name the key actors, location, and spell out the concrete consequences or stakes
 - Avoid speculation; stick strictly to the reported facts
 - Write in the third person, as you would for a news wire dispatch
 
 Return a JSON object with this exact structure:
 {
-  "summary": "<1 or 2 sentence journalistic summary>",
-  "title": "<headline of exactly 10 to 12 words>"
+  "summary": "<1 or 2 sentence journalistic summary focused on the single most significant event>",
+  "title": "<short, punchy headline>"
 }
 
 Title rules:
 - CRITICAL: Write in English only. Do not use Chinese, Arabic, or any other language.
-- Count every word. If the headline exceeds 12 words, rewrite it shorter.
-- Name the key actor and location (e.g. "Russia", "Ukraine", "Iran", "Israel", "Mali")
-- State the main action and its direct consequence
+- Keep it short and punchy — prioritize impact over completeness
+- Frame the event as a turning point, threat, or crisis when the facts justify it
+- Name the key actor and location (e.g. "Russia", "Ukraine", "Iran", "Israel", "Sudan")
+- State the core action and what it puts at risk or triggers
 - Active voice, past tense
 - No hashtags, no quotes, no punctuation at the end
 
 Title examples:
-- US and Israeli forces prepared strikes against Iran sparking fears of preemptive retaliation
-- Ukrainian drones struck Moscow region facilities and destroyed critical oil infrastructure
-- Ukrainian drones struck Russian military sites across several regions destroying equipment
-- US forces resumed strikes on Iranian targets causing massive regional escalation
+- Russia Bombed a Maternity Hospital Killing Dozens in Occupied Ukraine
+- Iran Crossed the Nuclear Threshold the World Feared
+- Sudan's Army Massacred Civilians as Famine Spread Unchecked
+- Israel Struck Beirut's City Center Threatening a Full Regional War
+- Wagner's Mutiny Exposed the Fractures at the Heart of Putin's War Machine
 
 Output ONLY the JSON object, nothing else."""
 
@@ -75,7 +78,7 @@ def _call_llm(user_content: str) -> dict | None:
                 {"role": "user", "content": user_content},
             ],
             response_format={"type": "json_object"},
-            temperature=0.1,
+            temperature=0,
             top_p=0.8,
             max_tokens=2000,
         )
@@ -99,13 +102,14 @@ DO UPDATE SET
 """
 
 SQL_GET_EVENTS = """
-SELECT TEXT, FK_TOPIC, CREATED_AT::DATE
+SELECT SUMMARY_TEXT, FK_TOPIC, CREATED_AT::DATE
 FROM TWEETS
 WHERE
     CREATED_AT::DATE = CURRENT_DATE - %s
     AND SUMMARY_TEXT IS NOT NULL
     AND FK_TOPIC IS NOT NULL
     AND IMPORTANCE_SCORE >= 4
+    AND IS_DUPLICATE = 'false' 
 """
 
 

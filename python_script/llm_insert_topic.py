@@ -80,7 +80,8 @@ def build_system_prompt(topic_dict: dict):
     - If the event is vague, a test, gibberish, or not clearly related to any topic, you MUST return {{"topic": null}}.
     - Do NOT guess or infer. If you are not 100% sure, return {{"topic": null}}.
     - A single number, word, or unrelated sentence must return {{"topic": null}}.
-    
+    - If event concerns Lebanon + Hezbollah and Israel only, return "Hezbollah-Israel Front"
+
     Respond ONLY with a JSON object: {{"topic": "Iran-US War"}} or {{"topic": null}}
     
     The topics are: {topic_dict}
