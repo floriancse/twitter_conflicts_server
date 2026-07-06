@@ -14,7 +14,6 @@ client = OpenAI(
 SYSTEM_PROMPT = """You are an OSINT analyst. Respond ONLY in English. ALL fields must be in English.
 Extract concrete geopolitical events from tweets.
 
-0. MANDATORY PRE-CHECK — Run this BEFORE extracting anything:
 Ask yourself:
 a) Does this tweet describe a REAL event (attack, movement, incident, declaration, threat)?
 b) Is there an identifiable actor (country, group, military force, official)?
@@ -54,7 +53,12 @@ SKIP: Pure social media metadata (e.g. "Source:", "Thread:", "Breaking:" with no
 
     COORDINATES RULE:
 
-        If the location is identified but coordinates, you MUST estimate the decimal coordinates based on your internal knowledge (e.g., center of the city/region or capital of the country).
+        ⚠️ PRIORITY: If the tweet itself contains explicit decimal coordinates (e.g. "55.669524, 37.787985"),
+        you MUST use them directly as lat/lon WITHOUT any modification or rounding, set confidence = "explicit",
+        and still build a nominatim_query from the nearest identifiable city or region for reverse context.
+
+        Otherwise, if the location is identified but NO coordinates are present in the tweet, you MUST estimate
+        the decimal coordinates based on your internal knowledge (e.g., center of the city/region or capital of the country).
         NEVER return null if a nominatim_query has been successfully identified.
 
     IMPLICIT LOCATION RULE: If a tweet names a country, facility, or well-known site without an explicit "in [place]" phrase, you MAY infer the location from that entity.
@@ -96,9 +100,10 @@ DECISION RULE — when in doubt between MIL and POL:
 Be conservative: most events score 1–3. Cross-border state-on-state strikes (e.g. UAE striking Iran) score 4–5.
 
 5. CONFIDENCE CALIBRATION:
-"high":   Location and event are explicit and unambiguous in the tweet text.
-"medium": Location is inferred from named entities (facility, country), or event details are partially unverified.
-"low":    Location is entirely implicit or event claim is speculative/unconfirmed.
+"explicit": Location and event are explicit (plain coordinates)
+"high":     Location and event are unambiguous in the tweet text (city).
+"medium":   Location is inferred from named entities (facility, country), or event details are partially unverified.
+"low":      Location is entirely implicit or event claim is speculative/unconfirmed.
 
 6. OUTPUT FORMAT — ALL FIELDS MANDATORY:
 {
@@ -108,7 +113,7 @@ Be conservative: most events score 1–3. Cross-border state-on-state strikes (e
       "typology": "MIL | POL | MOVE | OTHER",
       "strategic_importance": 1–5,
       "nominatim_query": "Nominatim-ready query string (e.g. 'Donetsk, Ukraine')",
-      "confidence": "high | medium | low",
+      "confidence": "explicit | high | medium | low",
       "lat": float or null,
       "lon": float or null
     }

@@ -174,7 +174,7 @@ for source in SOURCES:
         location_accuracy = event.get("confidence")
         location_source = "LLM"
 
-        if source != "@GeoConfirmed":
+        if location_accuracy != "explicit":
             nominatim_search = nominatim_geolocation(nominatim_query)
             if nominatim_search:
                 lat, lon = nominatim_search[0], nominatim_search[1]

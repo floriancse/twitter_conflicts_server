@@ -182,71 +182,94 @@ def get_checkpoints():
 
         cur.execute(
             """
-            SELECT
-                JSON_BUILD_OBJECT(
-                    'type',
-                    'FeatureCollection',
-                    'features',
-                    JSON_AGG(
-                        JSON_BUILD_OBJECT(
-                            'type',
-                            'Feature',
-                            'geometry',
-                            ST_ASGEOJSON (GEOM)::JSON,
-                            'properties',
-                            JSON_BUILD_OBJECT(
-                                'portname',
-                                PORTNAME,
-                                'status',
-                                STATUS,
-                                'confidence',
-                                CONFIDENCE,
-                                'reason',
-                                REASON,
-                                'CLOSED_DURATION',
-                                CLOSED_DURATION
-                            )
-                        )
-                    )
-                )
-            FROM
-                (
-                    SELECT
-                        CP.PORTNAME,
-                        CS.STATUS,
-                        CS.CONFIDENCE,
-                        CS.REASON,
-                        CP.GEOM,
-                        CASE
-                            WHEN MAX(CS2.SNAPSHOT_DATE::DATE) - COALESCE(
-                                MAX(CS2.SNAPSHOT_DATE::DATE) FILTER (
-                                    WHERE
-                                        CS2.STATUS IN ('OPEN')
-                                ),
-                                MIN(CS2.SNAPSHOT_DATE::DATE)
-                            ) = 0 THEN 1
-                            ELSE MAX(CS2.SNAPSHOT_DATE::DATE) - COALESCE(
-                                MAX(CS2.SNAPSHOT_DATE::DATE) FILTER (
-                                    WHERE
-                                        CS2.STATUS IN ('OPEN')
-                                ),
-                                MIN(CS2.SNAPSHOT_DATE::DATE)
-                            )
-                        END AS CLOSED_DURATION
-                    FROM
-                        CHOKEPOINTS_STATE_HISTORY CS
-                        LEFT JOIN CHOKEPOINTS CP ON CP.PORTNAME = CS.PORTNAME
-                        LEFT JOIN CHOKEPOINTS_STATE_HISTORY CS2 ON CS2.PORTNAME = CS.PORTNAME
-                    WHERE
-                        CS.SNAPSHOT_DATE::DATE = CURRENT_DATE - 1
-                        AND CS.STATUS IN ('CLOSED', 'RESTRICTED')
-                    GROUP BY
-                        CP.PORTNAME,
-                        CS.STATUS,
-                        CS.CONFIDENCE,
-                        CS.REASON,
-                        CP.GEOM
-                ) AS SUBQUERY;
+SELECT
+	JSON_BUILD_OBJECT(
+		'type',
+		'FeatureCollection',
+		'features',
+		JSON_AGG(
+			JSON_BUILD_OBJECT(
+				'type',
+				'Feature',
+				'geometry',
+				ST_ASGEOJSON (GEOM)::JSON,
+				'properties',
+				JSON_BUILD_OBJECT(
+					'portname',
+					PORTNAME,
+					'status',
+					STATUS,
+					'confidence',
+					CONFIDENCE,
+					'reason',
+					REASON,
+					'STATE_DURATION',
+					STATE_DURATION
+				)
+			)
+		)
+	)
+FROM
+	(
+		SELECT
+			CP.PORTNAME,
+			CS.STATUS,
+			CS.CONFIDENCE,
+			CS.REASON,
+			CP.GEOM,
+			CASE
+				WHEN CS.STATUS IN ('CLOSED', 'RESTRICTED') THEN CASE
+					WHEN MAX(CS2.SNAPSHOT_DATE::DATE) - COALESCE(
+						MAX(CS2.SNAPSHOT_DATE::DATE) FILTER (
+							WHERE
+								CS2.STATUS = 'OPENED'
+						),
+						MIN(CS2.SNAPSHOT_DATE::DATE)
+					) = 0 THEN 1
+					ELSE MAX(CS2.SNAPSHOT_DATE::DATE) - COALESCE(
+						MAX(CS2.SNAPSHOT_DATE::DATE) FILTER (
+							WHERE
+								CS2.STATUS = 'OPENED'
+						),
+						MIN(CS2.SNAPSHOT_DATE::DATE)
+					)
+				END
+				WHEN CS.STATUS = 'OPENED' THEN MAX(CS2.SNAPSHOT_DATE::DATE) - COALESCE(
+					MAX(CS2.SNAPSHOT_DATE::DATE) FILTER (
+						WHERE
+							CS2.STATUS IN ('CLOSED', 'RESTRICTED')
+					),
+					MIN(CS2.SNAPSHOT_DATE::DATE)
+				)
+			END AS STATE_DURATION
+		FROM
+			CHOKEPOINTS_STATE_HISTORY CS
+			LEFT JOIN CHOKEPOINTS CP ON CP.PORTNAME = CS.PORTNAME
+			LEFT JOIN CHOKEPOINTS_STATE_HISTORY CS2 ON CS2.PORTNAME = CS.PORTNAME
+		WHERE
+			CS.SNAPSHOT_DATE::DATE = (SELECT MAX(SNAPSHOT_DATE::DATE) FROM CHOKEPOINTS_STATE_HISTORY)
+			AND (
+				CS.STATUS IN ('CLOSED', 'RESTRICTED')
+				OR (
+					CS.STATUS = 'OPENED'
+					AND (
+						SELECT
+							MAX(CS3.SNAPSHOT_DATE::DATE)
+						FROM
+							CHOKEPOINTS_STATE_HISTORY CS3
+						WHERE
+							CS3.PORTNAME = CS.PORTNAME
+							AND CS3.STATUS IN ('CLOSED', 'RESTRICTED')
+					) >= CURRENT_DATE - 8
+				)
+			)
+		GROUP BY
+			CP.PORTNAME,
+			CS.STATUS,
+			CS.CONFIDENCE,
+			CS.REASON,
+			CP.GEOM
+	)
         """
         )
 
@@ -409,7 +432,9 @@ def get_tweets(
                             'location_source',
                             location_source,
                             'label',
-                            TOP.label
+                            TOP.label,
+                            'objective_type',
+                            MA.objective_type
                         )
                     )
                 )
@@ -422,7 +447,7 @@ def get_tweets(
             LIMIT 1
         ) wa ON TRUE
         LEFT JOIN LATERAL (
-            SELECT weapon_type, aggressor, target
+            SELECT weapon_type, aggressor, target, objective_type
             FROM MILITARY_ACTIONS
             WHERE TWEET_ID = T.TWEET_ID
             LIMIT 1
