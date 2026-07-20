@@ -44,9 +44,9 @@ SOURCES = [
     "@khorasandiary", "@martinplaut","@BrantPhilip_","@sheehanj920",
     "@Intelynx","@Wamaps_news","@ADFmagazine","@mintelworld",
     "@99Dominik_", "@geo27752","@aamajnews_EN",
-    "@PakDefence_","@jacksonhinklle","@Archer83Able","@SNAForce",
+    "@PakDefence_","@Archer83Able","@SNAForce",
     "@Myanmar_Now_Eng","@sterrorwatch","@zarGEOINT","@neonhandrail", "@EpicFuryMap",
-    "@BabakTaghvaee1", "@avivector"
+    "@BabakTaghvaee1", "@avivector", "@Exilenova_plus"
 ]
 
 # ==============================================================================

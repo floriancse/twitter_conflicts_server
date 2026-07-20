@@ -15,7 +15,7 @@ def nominatim_geolocation(q):
     if not features:
         return None
 
-    if q in ['Middle East', 'South Lebanon']:
+    if q in ['Middle East', 'South Lebanon', 'Northern Mali', 'Eastern Jordan']:
         return None
 
     data_sorted = sorted(features, key=lambda feature: feature['properties']['importance'], reverse=True)
