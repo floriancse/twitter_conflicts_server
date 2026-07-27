@@ -166,7 +166,8 @@ def infer_strait_status(tweets: list[dict], strait: dict) -> dict:
     - Completely ignore any mentions of military vessels, warships, naval forces, or any state military activity UNLESS they directly impact civil transit (e.g. a blockade, a closure order, attacks on commercial ships).
     - If tweets contradict each other, the MOST RECENT SIGNALS always win.
     - Use "low" confidence only if the most recent signals contain no clear information about commercial traffic.
-{extra_instructions}
+    - If a strait is closed to a specific country then the status is RESTRICTED, use the country name in the reason sentence.
+    {extra_instructions}
     Tweets (ordered by recency then importance):
     {context}
 

@@ -127,72 +127,73 @@ for source in SOURCES:
     print(source)
 
     try:
+
         osint_json = parse_to_json(f"http://localhost:8080/{source[1:]}/rss", source)
-    except Exception as error:
-        print(error)
-
-    for item in osint_json["tweets"]:
-        if item["id"] in tweet_in_db:
-            continue
-
-        if source == "@GeoConfirmed":
-            if not item["description"].startswith("GeoConfirmed "):
+        for item in osint_json["tweets"]:
+            if item["id"] in tweet_in_db:
                 continue
 
-        tweet_text = item["title"]
+            if source == "@GeoConfirmed":
+                if not item["description"].startswith("GeoConfirmed "):
+                    continue
 
-        if tweet_text.startswith(("RT", "x.com", "Update")):
-            continue
+            tweet_text = item["title"]
 
-        try:
-            llm_to_geocode = extract_events_and_geoloc(tweet_text)
-        except Exception as e:
-            print("LLM error:", e)
-            continue
+            if tweet_text.startswith(("RT", "x.com", "Update")):
+                continue
 
-        if llm_to_geocode is None:
-            print(tweet_text, item["link"])
-            continue
+            try:
+                llm_to_geocode = extract_events_and_geoloc(tweet_text)
+            except Exception as e:
+                print("LLM error:", e)
+                continue
 
-        events = llm_to_geocode.get("events", [])
-        
-        if not events:
-            cur.execute(SQL_INSERT_TWEET_MINIMAL,
-                (item["id"], item["date"], item["link"], item["author"], tweet_text, 'true'))
+            if llm_to_geocode is None:
+                print(tweet_text, item["link"])
+                continue
+
+            events = llm_to_geocode.get("events", [])
+            
+            if not events:
+                cur.execute(SQL_INSERT_TWEET_MINIMAL,
+                    (item["id"], item["date"], item["link"], item["author"], tweet_text, 'true'))
+                conn.commit()
+                continue
+
+            tweet_text = translate_to_english(tweet_text)
+            event = events[0]
+
+            lat = event.get("lat")
+            lon = event.get("lon")
+            strategic_importance = int(event.get("strategic_importance") or 0)
+            typology = event.get("typology")
+            summary_text = event.get("summary_text")
+            nominatim_query = event.get("nominatim_query")
+            location_accuracy = event.get("confidence")
+            location_source = "LLM"
+
+            if location_accuracy != "explicit":
+                nominatim_search = nominatim_geolocation(nominatim_query)
+                if nominatim_search:
+                    lat, lon = nominatim_search[0], nominatim_search[1]
+                    location_source = "Nominatim"
+
+            geom_wkt = f"POINT({lon} {lat})" if lat and lon else None
+            print(nominatim_query, geom_wkt, summary_text)
+
+            cur.execute(SQL_INSERT_TWEET_FULL, (
+                item["id"], item["date"], item["link"], item["author"], tweet_text,
+                location_accuracy, strategic_importance, typology,
+                summary_text, nominatim_query, geom_wkt, geom_wkt, location_source
+            ))
             conn.commit()
-            continue
 
-        tweet_text = translate_to_english(tweet_text)
-        event = events[0]
+            for img in item["images"]:
+                cur.execute(SQL_INSERT_IMAGE, (item["id"], img))
+                conn.commit()
 
-        lat = event.get("lat")
-        lon = event.get("lon")
-        strategic_importance = int(event.get("strategic_importance") or 0)
-        typology = event.get("typology")
-        summary_text = event.get("summary_text")
-        nominatim_query = event.get("nominatim_query")
-        location_accuracy = event.get("confidence")
-        location_source = "LLM"
-
-        if location_accuracy != "explicit":
-            nominatim_search = nominatim_geolocation(nominatim_query)
-            if nominatim_search:
-                lat, lon = nominatim_search[0], nominatim_search[1]
-                location_source = "Nominatim"
-
-        geom_wkt = f"POINT({lon} {lat})" if lat and lon else None
-        print(nominatim_query, geom_wkt, summary_text)
-
-        cur.execute(SQL_INSERT_TWEET_FULL, (
-            item["id"], item["date"], item["link"], item["author"], tweet_text,
-            location_accuracy, strategic_importance, typology,
-            summary_text, nominatim_query, geom_wkt, geom_wkt, location_source
-        ))
-        conn.commit()
-
-        for img in item["images"]:
-            cur.execute(SQL_INSERT_IMAGE, (item["id"], img))
-            conn.commit()
+    except Exception as error:
+        print(error)
 
 flag_duplicates()
 save_threat_snapshot()

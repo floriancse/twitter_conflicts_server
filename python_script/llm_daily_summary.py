@@ -4,6 +4,8 @@ import os
 import json
 import argparse
 from dotenv import load_dotenv
+from datetime import datetime
+
 
 load_dotenv()
 
@@ -20,7 +22,9 @@ client = OpenAI(
     api_key="ollama",
 )
 
-SYSTEM_PROMPT = """
+def build_system_prompt() -> str:
+    today_str = datetime.today().strftime('%Y-%m-%d')
+    return f"""
 You are an experienced investigative journalist specializing in conflict monitoring and geopolitical affairs.
 Your task is to identify and report on the single most significant or alarming development among the following events.
 
@@ -32,12 +36,16 @@ Guidelines:
 - Name the key actors, location, and spell out the concrete consequences or stakes
 - Avoid speculation; stick strictly to the reported facts
 - Write in the third person, as you would for a news wire dispatch
+- Today's date is {today_str}. If the event you select actually took place before today (e.g. it is
+  reported today but the facts happened days/months/years earlier, such as an anniversary, retrospective,
+  or delayed report), you MUST contextualize it with the real event date — in BOTH the summary AND the title.
+  Never let a past event read as if it happened today.
 
 Return a JSON object with this exact structure:
-{
+{{
   "summary": "<1 or 2 sentence journalistic summary focused on the single most significant event>",
   "title": "<short, punchy headline>"
-}
+}}
 
 Title rules:
 - CRITICAL: Write in English only. Do not use Chinese, Arabic, or any other language.
@@ -47,13 +55,12 @@ Title rules:
 - State the core action and what it puts at risk or triggers
 - Active voice, past tense
 - No hashtags, no quotes, no punctuation at the end
-
-Title examples:
-- Russia Bombed a Maternity Hospital Killing Dozens in Occupied Ukraine
-- Iran Crossed the Nuclear Threshold the World Feared
-- Sudan's Army Massacred Civilians as Famine Spread Unchecked
-- Israel Struck Beirut's City Center Threatening a Full Regional War
-- Wagner's Mutiny Exposed the Fractures at the Heart of Putin's War Machine
+- MANDATORY TEMPORAL RULE: if the selected event did not happen today ({today_str}) — i.e. it is a past,
+  historical, anniversary, or retrospective event — the title MUST include a clear date marker for when
+  it actually happened (year, or month + year if known), e.g. "Mali: 2024 Ambush on FAMa Sparked Turkish
+  Drone Strikes" or "Iran Nuclear Site Hit in June 2025 Strike, Fallout Continues". Do not omit the date
+  from the title just because it appears in the summary — both must carry it independently.
+- If the event genuinely happened today, no date marker is needed in the title.
 
 Output ONLY the JSON object, nothing else."""
 
@@ -74,7 +81,7 @@ def _call_llm(user_content: str) -> dict | None:
         response = client.chat.completions.create(
             model="qwen36-fixed",
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": build_system_prompt()},
                 {"role": "user", "content": user_content},
             ],
             response_format={"type": "json_object"},

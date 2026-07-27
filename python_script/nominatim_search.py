@@ -15,7 +15,13 @@ def nominatim_geolocation(q):
     if not features:
         return None
 
-    if q in ['Middle East', 'South Lebanon', 'Northern Mali', 'Eastern Jordan']:
+    directional_keywords = [
+    'Middle East',
+    'Eastern', 'Northern', 'Western', 'Southern', 'Central',
+    'North', 'South', 'East', 'West'
+    ]
+
+    if any(keyword.lower() in q.lower() for keyword in directional_keywords):
         return None
 
     data_sorted = sorted(features, key=lambda feature: feature['properties']['importance'], reverse=True)
@@ -39,4 +45,4 @@ def nominatim_geolocation(q):
     return None
 
 if __name__ == "__main__":
-    print(nominatim_geolocation("Washington, USA"))
+    print(nominatim_geolocation("Eastern France"))

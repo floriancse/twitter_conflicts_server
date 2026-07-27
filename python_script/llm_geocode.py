@@ -5,13 +5,14 @@ Module d'extraction d'événements géopolitiques via LLM (Ollama local)
 
 import json
 from openai import OpenAI
+from datetime import datetime
 
 client = OpenAI(
     base_url="http://localhost:11434/v1",
     api_key="ollama",
 )
 
-SYSTEM_PROMPT = """You are an OSINT analyst. Respond ONLY in English. ALL fields must be in English.
+SYSTEM_PROMPT_BASE = """You are an OSINT analyst. Respond ONLY in English. ALL fields must be in English.
 Extract concrete geopolitical events from tweets.
 
 Ask yourself:
@@ -122,13 +123,50 @@ Be conservative: most events score 1–3. Cross-border state-on-state strikes (e
 
 If no extractable event → return {"events": []}"""
 
+TEMPORAL_INSTRUCTIONS = """
+
+7. TEMPORAL MARKING (mandatory):
+You are told today's date at the top of this prompt. Use it to judge whether the event described
+happened recently or a long time ago.
+
+- If the tweet is a retrospective, commemoration, anniversary, "on this day", "X years/months ago",
+  "throwback", "flashback", or otherwise clearly recalls an event that took place well before today
+  (as a rough guide: more than ~30 days before today's date, or any tweet explicitly framed as an
+  anniversary/retrospective regardless of how old the event is) → the event is HISTORICAL.
+- Plain past-tense reporting of something that just happened (last few days) is NOT historical —
+  do not tag it.
+
+For every event classified as HISTORICAL, summary_text MUST start with the prefix:
+"[HISTORICAL EVENT - <original event date, as precisely as known, e.g. 'July 2024' or '2024-07-22'>] "
+followed by the normal analytical summary.
+
+Example:
+Tweet: a 2026 post commemorating the "second anniversary of the Battle of Tinzaouatène (July 2024)".
+summary_text: "[HISTORICAL EVENT - July 2024] Malian Armed Forces (FAMa) supported by Wagner
+mercenaries launched a military operation in Tinzaouatène, Mali, which resulted in a deadly ambush
+by CSP-DPA rebels and subsequent Turkish drone strikes."
+
+Do not invent an event date if none is identifiable; in that case use a coarser marker such as
+"[HISTORICAL EVENT - date unclear, appears to predate current reporting]"."""
+
+
+def build_system_prompt() -> str:
+    """Builds the system prompt with today's date injected, so the model can judge
+    how recent or how distant an event is (e.g. anniversary/retrospective posts)."""
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    date_header = (
+        f"Today's date is {today_str}. Use this date as your reference point whenever "
+        f"you need to judge how recent, ongoing, or historical an event is.\n\n"
+    )
+    return date_header + SYSTEM_PROMPT_BASE + TEMPORAL_INSTRUCTIONS
+
 
 def extract_events_and_geoloc(tweet_text: str) -> dict | None:
     try:
         response = client.chat.completions.create(
             model="qwen36-fixed",
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": build_system_prompt()},
                 {
                     "role": "user",
                     "content": (
