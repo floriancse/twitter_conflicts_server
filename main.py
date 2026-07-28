@@ -97,9 +97,10 @@ def get_bootstrap():
     Regroupe en une seule requête HTTP les couches "statiques" nécessaires
     au chargement initial de la carte :
     shipping_lanes, chokepoints, conflict_borders, conflict_theaters,
-    conflict_areas, world_areas, topics_location, topics_areas.
+    conflict_areas, world_areas, topics_location, topics_areas,
+    strait_closure, military_lines, tweets, topics, topic_summaries.
 
-    Une seule connexion est empruntée au pool pour exécuter les 8 requêtes
+    Une seule connexion est empruntée au pool pour exécuter les requêtes
     (au lieu d'ouvrir/fermer une connexion par endpoint côté front).
 
     Returns:
@@ -112,6 +113,11 @@ def get_bootstrap():
             "world_areas": <GeoJSON>,
             "topics_location": <GeoJSON>,
             "topics_areas": <GeoJSON>,
+            "strait_closure": [...],
+            "military_lines": <GeoJSON>,  # fenêtre fixe de 30 jours
+            "tweets": <GeoJSON>,          # fenêtre fixe de 30 jours
+            "topics": [...],              # liste des topics "importants" (importance_score >= 4)
+            "topic_summaries": {...},     # { topic_id: [ {tweet_id, created_at, summary, summary_title}, ... ] }, 15 max par topic
         }
     """
     with get_db() as conn:
@@ -596,190 +602,92 @@ FROM
         )
         result["strait_closure"] = cur.fetchall()
 
-        cur.close()
+        cur.execute(
+                    """
+                    SELECT
+                        JSON_BUILD_OBJECT(
+                            'type', 'FeatureCollection',
+                            'features', JSON_AGG(
+                                JSON_BUILD_OBJECT(
+                                    'type', 'Feature',
+                                    'geometry', ST_ASGEOJSON(ST_MAKELINE (WC.GEOM, T.GEOM))::JSON,
+                                    'properties', JSON_BUILD_OBJECT(
+                                        'created_at', T.CREATED_AT,
+                                        'label', TOP.LABEL,
+                                        'weapon_type',weapon_type,
+                                        'objective_type',objective_type
+                                    )
+                                )
+                            )
+                        )
+                    FROM
+                        MILITARY_ACTIONS MA
+                        NATURAL JOIN TWEETS T
+                        LEFT JOIN TOPICS TOP ON TOP.TOPIC_ID = T.FK_TOPIC
+                        LEFT JOIN WORLD_AREAS WA ON wa.entity_name = aggressor
+                        LEFT JOIN WORLD_CAPITALS WC ON ST_CONTAINS (WA.GEOM, WC.GEOM)
+                    WHERE
+                        T.CREATED_AT >= NOW() - INTERVAL '30 days'
+                    """
+                )
 
-    return result
-
-
-@app.get("/usernames")
-def get_usernames(
-    start_date: datetime = Query(..., description="Start date (e.g. 2026-02-14T00:00:00Z)"),
-    end_date: datetime = Query(..., description="End date (e.g. 2026-02-15T23:59:59Z)")
-):
-    """
-    Returns the list of distinct authors who published tweets over a given time range.
-
-    Args:
-        start_date (datetime): Start date (with timezone) - REQUIRED
-        end_date (datetime): End date (with timezone) - REQUIRED
-
-    Returns:
-        dict: {"usernames": ["@username1", "@username2", ...]}
-    """
-    with get_db() as conn:
-        cur = conn.cursor()
+        result["military_lines"] = cur.fetchone()[0]
 
         cur.execute(
             """
-            SELECT DISTINCT username
-            FROM public.tweets
-            WHERE created_at >= %s AND created_at <= %s
-            ORDER BY username;
-            """,
-            (start_date, end_date)
-        )
-
-        usernames = [row[0] for row in cur.fetchall()]
-        cur.close()
-
-    return {"usernames": usernames}
-
-
-@app.get("/last_update")
-def get_last_update(
-):
-    """
-    """
-    with get_db() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            """
+            WITH filtered_tweets AS (
+                SELECT
+                    t.tweet_id, t.tweet_url, t.username, t.created_at, t.text,
+                    t.location_accuracy, t.nominatim_query, t.geom,
+                    t.importance_score, t.conflict_typology, t.verified,
+                    t.location_source, t.is_duplicate, t.fk_topic
+                FROM tweets t
+                WHERE T.CREATED_AT >= NOW() - INTERVAL '30 days'
+                AND t.is_duplicate = 'false'
+                AND t.geom IS NOT NULL
+            )
             SELECT
-                CREATED_AT
-            FROM
-                TWEETS
-            ORDER BY
-                CREATED_AT DESC
-            LIMIT
-                1
-            """
-        )
-
-        last_update =cur.fetchone()
-        cur.close()
-
-    return {"last_update": last_update[0]}
-
-
-@app.get("/tweets.geojson")
-def get_tweets(
-    q: Optional[str] = Query(None, description="Full-text search query (matches tweet text or username)"),
-    usernames: Optional[str] = Query(None, description="Comma-separated list of authors to filter by"),
-    area: Optional[str] = Query(None, description="Geographic area name to filter by"),
-    aggressor: Optional[str] = Query(None, description="Filter by aggressor country name"),
-    weapon_type: Optional[List[str]] = Query(None, description="Filter by weapon(s) used. Repeat the param for multiple values, e.g. ?weapon_type=A&weapon_type=B"),
-):
-    """
-    Returns geolocated tweets as a GeoJSON FeatureCollection with advanced filtering.
-
-    Args:
-        start_date (datetime): Start date - REQUIRED
-        end_date (datetime): End date - REQUIRED
-        q (str, optional): Full-text search (matches tweet body or username)
-        usernames (str, optional): Comma-separated list of authors
-        area (str, optional): Geographic area name
-
-    Returns:
-        Response: GeoJSON FeatureCollection
-    """
-    conditions = ["T.CREATED_AT >= NOW() - INTERVAL '30 days'"]
-    params = []
-
-    if q:
-        conditions.append("(text ILIKE %s OR username ILIKE %s)")
-        params.extend([f"%{q}%", f"%{q}%"])
-
-    if usernames:
-        username_list = [a.strip() for a in usernames.split(',') if a.strip()]
-        if username_list:
-            placeholders = ','.join(['%s'] * len(username_list))
-            conditions.append(f"username IN ({placeholders})")
-            params.extend(username_list)
-
-    if area:
-        conditions.append("""wa.entity_name = %s""")
-        params.append(area)
-
-    if aggressor: 
-        conditions.append("""ma.aggressor = %s""")
-        params.append(aggressor)
-    
-    if weapon_type:
-        placeholders = ','.join(['%s'] * len(weapon_type))
-        conditions.append(f"ma.weapon_type IN ({placeholders})")
-        params.extend(weapon_type)
-
-    where_clause = " AND ".join(conditions)
-
-    query = f"""
-    WITH filtered_tweets AS (
-        SELECT
-            t.tweet_id, t.tweet_url, t.username, t.created_at, t.text,
-            t.location_accuracy, t.nominatim_query, t.geom,
-            t.importance_score, t.conflict_typology, t.verified,
-            t.location_source, t.is_duplicate, t.fk_topic
-        FROM tweets t
-        WHERE {where_clause}
-          AND t.is_duplicate = 'false'
-          AND t.geom IS NOT NULL
-    )
-    SELECT
-        JSON_BUILD_OBJECT(
-            'type', 'FeatureCollection',
-            'features', JSON_AGG(
                 JSON_BUILD_OBJECT(
-                    'type', 'Feature',
-                    'geometry', ST_AsGeoJSON(ft.geom)::JSON,
-                    'properties', JSON_BUILD_OBJECT(
-                        'id', ft.tweet_id,
-                        'url', ft.tweet_url,
-                        'username', ft.username,
-                        'created_at', ft.created_at,
-                        'text', ft.text,
-                        'latitude', ROUND(st_y(ft.geom)::numeric, 3),
-                        'longitude', ROUND(st_x(ft.geom)::numeric, 3),
-                        'importance_score', ft.importance_score,
-                        'conflict_typology', ft.conflict_typology,
-                        'verified', ft.verified,
-                        'location_source', ft.location_source,
-                        'label', top.label,
-                        'objective_type', ma.objective_type,
-                        'weapon_type', ma.weapon_type,
-                        'aggressor', ma.aggressor,
-                        'target', ma.target,
-                        'nominatim_query', ft.nominatim_query,
-                        'images', COALESCE(
-                            (SELECT JSON_AGG(ti.image_url ORDER BY ti.image_url)
-                             FROM tweet_images ti
-                             WHERE ti.tweet_id = ft.tweet_id),
-                            '[]'::JSON
+                    'type', 'FeatureCollection',
+                    'features', JSON_AGG(
+                        JSON_BUILD_OBJECT(
+                            'type', 'Feature',
+                            'geometry', ST_AsGeoJSON(ft.geom)::JSON,
+                            'properties', JSON_BUILD_OBJECT(
+                                'id', ft.tweet_id,
+                                'url', ft.tweet_url,
+                                'username', ft.username,
+                                'created_at', ft.created_at,
+                                'text', ft.text,
+                                'latitude', ROUND(st_y(ft.geom)::numeric, 3),
+                                'longitude', ROUND(st_x(ft.geom)::numeric, 3),
+                                'importance_score', ft.importance_score,
+                                'conflict_typology', ft.conflict_typology,
+                                'verified', ft.verified,
+                                'location_source', ft.location_source,
+                                'label', top.label,
+                                'objective_type', ma.objective_type,
+                                'weapon_type', ma.weapon_type,
+                                'aggressor', ma.aggressor,
+                                'target', ma.target,
+                                'nominatim_query', ft.nominatim_query,
+                                'images', COALESCE(
+                                    (SELECT JSON_AGG(ti.image_url ORDER BY ti.image_url)
+                                    FROM tweet_images ti
+                                    WHERE ti.tweet_id = ft.tweet_id),
+                                    '[]'::JSON
+                                )
+                            )
                         )
                     )
                 )
-            )
+            FROM filtered_tweets ft
+            LEFT JOIN topics top ON top.topic_id = ft.fk_topic
+            LEFT JOIN military_actions ma ON ma.tweet_id = ft.tweet_id
+            """
         )
-    FROM filtered_tweets ft
-    LEFT JOIN topics top ON top.topic_id = ft.fk_topic
-    LEFT JOIN military_actions ma ON ma.tweet_id = ft.tweet_id
-    """ 
+        result["tweets"] = cur.fetchone()[0]
 
-    with get_db() as conn:
-        cur = conn.cursor()
-        cur.execute(query, params)
-
-        geojson_data = cur.fetchone()[0] or {
-            "type": "FeatureCollection",
-            "features": []
-        }
-        cur.close()
-
-    return Response(content=json.dumps(geojson_data), media_type="application/geo+json")
-
-
-@app.get("/topics")
-def get_important_tweets():
-    with get_db() as conn:
-        cur = conn.cursor()
         cur.execute("""
         SELECT
             COUNT(TWEET_ID),
@@ -808,117 +716,70 @@ def get_important_tweets():
         ORDER BY
             MAX(TWEETS.CREATED_AT) DESC
         """)
-        rows = cur.fetchall()
-        cur.close()
+        topics_rows = cur.fetchall()
+        result["topics"] = [
+            {
+                "LABEL": row[1],
+                "COUNTRIES": row[2],
+                "ACTIVE": row[3],
+                "TOPIC_ID": row[4],
+                "TOPIC_SUMMARY": row[5],
+                "LNG": row[6],
+                "LAT": row[7],
+                "LATEST_UPDATE": row[8],
+            }
+            for row in topics_rows
+        ]
 
-    topics = {"topics": [
-        {   
-            "LABEL": row[1],          
-            "COUNTRIES": row[2],    
-            "ACTIVE": row[3], 
-            "TOPIC_ID": row[4],
-            "TOPIC_SUMMARY": row[5],
-            "LNG": row[6],   
-            "LAT": row[7],
-            "LATEST_UPDATE": row[8],
-        }
-        for row in rows
-    ]}
-    return topics
-
-
-@app.get("/topics/{topic_id}")
-def get_topic_tweets(topic_id: int):
-    with get_db() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-        SELECT
-            *
-        FROM
-            TOPIC_SUMMARIES
-        WHERE FK_TOPIC = %s
-        ORDER BY CREATED_AT DESC
-        LIMIT 15;
-        """, (topic_id,))
-        rows = cur.fetchall()
-        cur.close()
- 
-    events = {"tweets": [
-        {
-            "tweet_id":     row[0],
-            "created_at":   row[1].isoformat(),
-            "summary": row[2],
-            "summary_title": row[3]
-        }
-        for row in rows
-    ]}
-    return events
-
-
-@app.get("/military_lines.geojson")
-def get_military_lines(
-    start_date: datetime = Query(..., description="Start date (e.g. 2026-02-14T00:00:00Z)"),
-    end_date: datetime = Query(..., description="End date (e.g. 2026-02-15T23:59:59Z)")
-):
-    """
-    Returns military action lines (aggressor -> target) as a GeoJSON FeatureCollection,
-    over a given time range.
-
-    Args:
-        start_date (datetime): Start date (with timezone) - REQUIRED
-        end_date (datetime): End date (with timezone) - REQUIRED
-    """
-    with get_db() as conn:
-        cur = conn.cursor()
         cur.execute(
             """
             SELECT
-                JSON_BUILD_OBJECT(
-                    'type', 'FeatureCollection',
-                    'features', JSON_AGG(
-                        JSON_BUILD_OBJECT(
-                            'type', 'Feature',
-                            'geometry', ST_ASGEOJSON(ST_MAKELINE(AGGRESSOR_GEOM, T.GEOM))::JSON,
-                            'properties', JSON_BUILD_OBJECT(
-                                'created_at', T.CREATED_AT,
-                                'label', TOP.LABEL,
-                                'weapon_type',weapon_type,
-                                'objective_type',objective_type
-                            )
-                        )
-                    )
-                )
+                *
             FROM
-                MILITARY_ACTIONS MA
-                NATURAL JOIN TWEETS T
-                LEFT JOIN TOPICS TOP ON TOP.TOPIC_ID = T.FK_TOPIC
+                (
+                    SELECT
+                        *,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY
+                                FK_TOPIC
+                            ORDER BY
+                                CREATED_AT DESC
+                        ) AS RN
+                    FROM
+                        TOPIC_SUMMARIES
+                ) SUB
             WHERE
-                T.CREATED_AT >= NOW() - INTERVAL '30 days'
-            """,
-            (start_date, end_date)
+                RN <= 15
+            ORDER BY
+                FK_TOPIC,
+                CREATED_AT DESC
+            """
         )
+        summary_rows = cur.fetchall()
+        topic_summaries = {}
+        for row in summary_rows:
+            topic_id = row[4]
+            topic_summaries.setdefault(topic_id, []).append({
+                "tweet_id": row[0],
+                "created_at": row[1].isoformat(),
+                "summary": row[2],
+                "summary_title": row[3],
+            })
+        result["topic_summaries"] = topic_summaries
 
-        geojson_data = cur.fetchone()[0]
         cur.close()
 
-    return Response(content=json.dumps(geojson_data), media_type="application/geo+json")
+    return result
 
 
 @app.get("/graph_events")
 def get_graph_events(
-    start_date: Optional[datetime] = Query(None, description="Start date (e.g. 2026-02-14T00:00:00Z). Defaults to 30 days before end_date."),
-    end_date: Optional[datetime] = Query(None, description="End date (e.g. 2026-02-15T23:59:59Z). Defaults to now."),
     weapon_type: Optional[List[str]] = Query(None, description="Filter by weapon(s) used. Repeat the param for multiple values, e.g. ?weapon_type=A&weapon_type=B"),
     objective_type: Optional[List[str]] = Query(None, description="Filter by objective(s) targeted. Repeat the param for multiple values, e.g. ?objective_type=A&objective_type=B"),
+    label: Optional[str] = Query(None, description="Filter by topic label, e.g. ?label=Conflicts in Sahel"),
 ):
-    conditions = ["T.CREATED_AT >= NOW() - INTERVAL '30 days'"]
+    conditions = ["T.GEOM IS NOT NULL", "T.IS_DUPLICATE = 'false'", "T.FK_TOPIC IS NOT NULL"]
     params = []
-
-    if end_date is None:
-        end_date = datetime.utcnow()
-
-    if start_date is None:
-        start_date = end_date - timedelta(days=30)
 
     if weapon_type:
         placeholders = ','.join(['%s'] * len(weapon_type))
@@ -930,33 +791,52 @@ def get_graph_events(
         conditions.append(f"MA.objective_type IN ({placeholders})")
         params.extend(objective_type)
 
+    if label:
+        conditions.append("TOPICS.LABEL = %s")
+        params.append(label)
+
     where_clause = " AND ".join(conditions)
 
     with get_db() as conn:
         cur = conn.cursor()
         cur.execute(
             f"""
+            WITH MAX_DATE AS (
+                SELECT MAX(CREATED_AT) AS MAX_CREATED_AT FROM TWEETS
+            ),
+            ANCHOR AS (
+                SELECT
+                    DATE_TRUNC('day', MD.MAX_CREATED_AT) +
+                    INTERVAL '12 hours' * FLOOR(EXTRACT(HOUR FROM MD.MAX_CREATED_AT) / 12) AS PERIOD_START
+                FROM MAX_DATE MD
+            ),
+            FILTERED_TWEETS AS (
+                SELECT
+                    T.CREATED_AT
+                FROM
+                    TWEETS T
+                    LEFT JOIN MILITARY_ACTIONS MA ON T.TWEET_ID = MA.TWEET_ID
+                    LEFT JOIN TOPICS ON T.FK_TOPIC = TOPICS.TOPIC_ID
+                WHERE
+                    T.CREATED_AT >= (SELECT PERIOD_START FROM ANCHOR) - INTERVAL '30 days'
+                    AND {where_clause}
+            )
             SELECT
                 D.DAY AS DATE,
-                COUNT(T.CREATED_AT) AS EVENTS
+                COUNT(FT.CREATED_AT) AS EVENTS
             FROM
                 GENERATE_SERIES(
-                    %s::TIMESTAMP,
-                    %s::TIMESTAMP,
-                    INTERVAL '24 hours'
+                    (SELECT PERIOD_START FROM ANCHOR) - INTERVAL '30 days',
+                    (SELECT PERIOD_START FROM ANCHOR) + INTERVAL '12 hours',
+                    INTERVAL '12 hours'
                 ) AS D (DAY)
-                LEFT JOIN TWEETS T ON T.CREATED_AT >= D.DAY
-                AND T.CREATED_AT < D.DAY + INTERVAL '24 hours'
-                AND T.GEOM IS NOT NULL
-                AND T.IS_DUPLICATE = 'false'
-                LEFT JOIN MILITARY_ACTIONS MA ON T.TWEET_ID = MA.TWEET_ID
-                WHERE {where_clause} and FK_TOPIC IS NOT NULL
+                LEFT JOIN FILTERED_TWEETS FT ON FT.CREATED_AT >= D.DAY
+                AND FT.CREATED_AT < D.DAY + INTERVAL '12 hours'
             GROUP BY
                 D.DAY
             ORDER BY
-                D.DAY ASC;
-            """,
-            [start_date, end_date] + params
+                D.DAY ASC
+            """, params
         )
         graph_events = cur.fetchall()
         cur.close()

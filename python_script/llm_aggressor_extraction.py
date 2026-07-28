@@ -200,7 +200,7 @@ def build_system_prompt(countries: list[str]) -> str:
     → {{"actor": "Russia", "weapon_type": "Drones", "target": "Ukraine", "objective": "UAV", "objective_type": "Military"}}
 
     # 4. Named armed group
-    "JNIM/FLA coalition attacked the city of Gourma-Rharous and its military camp in Mali."
+    "JNIM/FLA coalition attacked the city of Gourma-Rharous and its military camp in Mali with customized AKM and AK-103 assault rifles."
     → {{"actor": "JNIM", "weapon_type": "Small Arms", "target": "Mali", "objective": "military camp", "objective_type": "Military"}}
 
     # 5. Actor = null — unlisted group
