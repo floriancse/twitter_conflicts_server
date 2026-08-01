@@ -17,7 +17,7 @@ from time import gmtime, strftime
 from flag_db_duplicates import flag_duplicates
 from llm_aggressor_extraction import generate_aggressor
 from save_threat_snapshot import save_threat_snapshot
-from nominatim_search import nominatim_geolocation
+from nominatim_search import nominatim_geolocation_closest
 from translate_tweet_text import translate_to_english
 from llm_strait_state import save_strait_state
 from llm_insert_topic import insert_topics
@@ -59,11 +59,11 @@ SQL_INSERT_TWEET_FULL = """
     INSERT INTO public.tweets (
         tweet_id, created_at, tweet_url, username, text,
         location_accuracy, importance_score, conflict_typology,
-        summary_text, nominatim_query, geom, location_source
+        summary_text, nominatim_query, geom, location_source, is_delayed
     )
     VALUES (
         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-        CASE WHEN %s IS NOT NULL THEN ST_GeomFromText(%s, 4326) ELSE NULL END, %s
+        CASE WHEN %s IS NOT NULL THEN ST_GeomFromText(%s, 4326) ELSE NULL END, %s, %s
     )
     ON CONFLICT (tweet_id) DO NOTHING
 """
@@ -171,9 +171,10 @@ for source in SOURCES:
             nominatim_query = event.get("nominatim_query")
             location_accuracy = event.get("confidence")
             location_source = "LLM"
+            is_delayed = event.get("is_delayed")
 
             if location_accuracy != "explicit":
-                nominatim_search = nominatim_geolocation(nominatim_query)
+                nominatim_search = nominatim_geolocation_closest(nominatim_query, lat, lon)
                 if nominatim_search:
                     lat, lon = nominatim_search[0], nominatim_search[1]
                     location_source = "Nominatim"
@@ -184,7 +185,7 @@ for source in SOURCES:
             cur.execute(SQL_INSERT_TWEET_FULL, (
                 item["id"], item["date"], item["link"], item["author"], tweet_text,
                 location_accuracy, strategic_importance, typology,
-                summary_text, nominatim_query, geom_wkt, geom_wkt, location_source
+                summary_text, nominatim_query, geom_wkt, geom_wkt, location_source, is_delayed
             ))
             conn.commit()
 

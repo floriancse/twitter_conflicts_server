@@ -79,7 +79,7 @@ def _call_llm(user_content: str) -> dict | None:
     """Call the LLM and return a parsed JSON dict with 'summary' and 'title'."""
     try:
         response = client.chat.completions.create(
-            model="qwen36-fixed",
+            model="qwen36-35b-fixed",
             messages=[
                 {"role": "system", "content": build_system_prompt()},
                 {"role": "user", "content": user_content},

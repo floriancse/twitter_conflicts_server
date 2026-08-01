@@ -71,7 +71,7 @@ def get_db_connection():
 # REQUÊTES
 # ==============================================================================
 
-def get_strait_tweets(cur, strait: dict, days: int = 14) -> list[dict]:
+def get_strait_tweets(cur, strait: dict, days: int = 60) -> list[dict]:
     """Récupère les tweets récents pour un détroit donné via ses aliases"""
     conditions = " OR ".join(["text ILIKE %s"] * len(strait["aliases"]))
     params = [f"%{a}%" for a in strait["aliases"]]
@@ -149,6 +149,21 @@ def infer_strait_status(tweets: list[dict], strait: dict) -> dict:
     - Official navigation warnings: JMIC, NAVTEX, NOTAM (POL, score >= 3)
     - Confirmed closure/opening orders from state actors (MIL/POL, score >= 4)
     - Diplomatic statements, negotiations, announcements (POL, any score) ← lowest weight
+
+    5. PARTIAL / CAUTIOUS RESUMPTION AFTER A CLOSURE:
+    - If a tweet reports a SPECIFIC, NAMED commercial vessel (with cargo type and/or
+        destination) actually transiting the strait after a prior closure or attack,
+        this is a genuine operational (MOVE-equivalent) signal, even if the tweet
+        itself is sourced from news media rather than vessel-tracking data.
+    - Do NOT dismiss this signal just because it is a single vessel, or because
+        the report describes it as a "cautious", "first", or "test" resumption.
+    - Such a signal is NOT sufficient to move status to OPENED (that still requires
+        evidence of broad, normal commercial traffic resuming).
+    - It IS sufficient to move status from CLOSED to RESTRICTED, with confidence
+        'medium', with a reason noting that transit is resuming selectively /
+        cautiously rather than normally.
+    - Only remain at CLOSED if there is no evidence of any commercial vessel
+        actually transiting since the closure began.
     """,
     }
 
@@ -180,7 +195,7 @@ def infer_strait_status(tweets: list[dict], strait: dict) -> dict:
     }}"""
 
     response = client.chat.completions.create(
-        model="qwen36-fixed",
+        model="qwen36-35b-fixed",
         messages=[{"role": "user", "content": prompt}],
         temperature=0,
         response_format={"type": "json_object"}

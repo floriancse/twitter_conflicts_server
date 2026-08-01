@@ -615,7 +615,8 @@ FROM
                                         'created_at', T.CREATED_AT,
                                         'label', TOP.LABEL,
                                         'weapon_type',weapon_type,
-                                        'objective_type',objective_type
+                                        'objective_type',objective_type,
+                                        'text', T.TEXT
                                     )
                                 )
                             )
@@ -635,16 +636,17 @@ FROM
 
         cur.execute(
             """
-            WITH filtered_tweets AS (
+           WITH filtered_tweets AS (
                 SELECT
                     t.tweet_id, t.tweet_url, t.username, t.created_at, t.text,
                     t.location_accuracy, t.nominatim_query, t.geom,
                     t.importance_score, t.conflict_typology, t.verified,
                     t.location_source, t.is_duplicate, t.fk_topic
                 FROM tweets t
-                WHERE T.CREATED_AT >= NOW() - INTERVAL '30 days'
+                WHERE t.created_at >= NOW() - INTERVAL '30 days'
                 AND t.is_duplicate = 'false'
                 AND t.geom IS NOT NULL
+                AND (t.is_delayed = 'false' OR t.is_delayed IS NULL)
             )
             SELECT
                 JSON_BUILD_OBJECT(
@@ -734,11 +736,17 @@ FROM
         cur.execute(
             """
             SELECT
-                *
+                CREATED_AT,
+                SUMMARY,
+                SUMMARY_TITLE,
+                FK_TOPIC
             FROM
                 (
                     SELECT
-                        *,
+                        CREATED_AT,
+                        SUMMARY,
+                        SUMMARY_TITLE,
+                        FK_TOPIC,
                         ROW_NUMBER() OVER (
                             PARTITION BY
                                 FK_TOPIC
@@ -758,12 +766,11 @@ FROM
         summary_rows = cur.fetchall()
         topic_summaries = {}
         for row in summary_rows:
-            topic_id = row[4]
+            created_at, summary, summary_title, topic_id = row
             topic_summaries.setdefault(topic_id, []).append({
-                "tweet_id": row[0],
-                "created_at": row[1].isoformat(),
-                "summary": row[2],
-                "summary_title": row[3],
+                "created_at": created_at.isoformat(),
+                "summary": summary,
+                "summary_title": summary_title,
             })
         result["topic_summaries"] = topic_summaries
 
@@ -777,6 +784,7 @@ def get_graph_events(
     weapon_type: Optional[List[str]] = Query(None, description="Filter by weapon(s) used. Repeat the param for multiple values, e.g. ?weapon_type=A&weapon_type=B"),
     objective_type: Optional[List[str]] = Query(None, description="Filter by objective(s) targeted. Repeat the param for multiple values, e.g. ?objective_type=A&objective_type=B"),
     label: Optional[str] = Query(None, description="Filter by topic label, e.g. ?label=Conflicts in Sahel"),
+    search: Optional[str] = Query(None, description="Free-text filter on tweet content, e.g. ?search=Wildberries"),
 ):
     conditions = ["T.GEOM IS NOT NULL", "T.IS_DUPLICATE = 'false'", "T.FK_TOPIC IS NOT NULL"]
     params = []
@@ -794,6 +802,10 @@ def get_graph_events(
     if label:
         conditions.append("TOPICS.LABEL = %s")
         params.append(label)
+
+    if search:
+        conditions.append("T.TEXT ILIKE %s")
+        params.append(f"%{search}%")
 
     where_clause = " AND ".join(conditions)
 
