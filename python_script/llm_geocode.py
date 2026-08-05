@@ -106,7 +106,12 @@ Be conservative: most events score 1–3. Cross-border state-on-state strikes (e
 "medium":   Location is inferred from named entities (facility, country), or event details are partially unverified.
 "low":      Location is entirely implicit or event claim is speculative/unconfirmed.
 
-6. OUTPUT FORMAT — ALL FIELDS MANDATORY:
+6. EVENTS DELAYED:
+"false": Tweet relates of an event that happened today.
+"true":  Tweet relates of an event that happened in the past.
+If no date is clear, it is "false" by default.
+
+7. OUTPUT FORMAT — ALL FIELDS MANDATORY:
 {
   "events": [
     {
@@ -116,7 +121,8 @@ Be conservative: most events score 1–3. Cross-border state-on-state strikes (e
       "nominatim_query": "Nominatim-ready query string (e.g. 'Donetsk, Ukraine')",
       "confidence": "explicit | high | medium | low",
       "lat": float or null,
-      "lon": float or null
+      "lon": float or null,
+      "is_delayed": "true | false"
     }
   ]
 }
@@ -164,7 +170,7 @@ def build_system_prompt() -> str:
 def extract_events_and_geoloc(tweet_text: str) -> dict | None:
     try:
         response = client.chat.completions.create(
-            model="qwen36-fixed",
+            model="qwen36-35b-fixed",
             messages=[
                 {"role": "system", "content": build_system_prompt()},
                 {
@@ -190,3 +196,7 @@ def extract_events_and_geoloc(tweet_text: str) -> dict | None:
     except Exception as e:
         print(str(e))
         return None
+
+if __name__ == "__main__":
+    print(extract_events_and_geoloc("""Russia's Tyumen oil refinery was forced to fully halt crude oil processing and petroleum product output following a successful Ukrainian drone attack last weekend -Reuters
+"""))

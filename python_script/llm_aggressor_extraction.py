@@ -297,7 +297,7 @@ def extract_quadruplet(summary: str, countries: list[str]) -> dict | None:
     try:
         
         response = client.chat.completions.create(
-            model="qwen36-fixed",
+            model="qwen36-35b-fixed",
             messages=[
                 {"role": "system", "content": build_system_prompt(countries)},
                 {"role": "user", "content": summary},

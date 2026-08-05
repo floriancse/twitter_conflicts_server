@@ -90,7 +90,7 @@ def build_system_prompt(topic_dict: dict):
 
 def extract_topic(event: str):
     response = client.chat.completions.create(
-        model="qwen36-fixed",
+        model="qwen36-35b-fixed",
         messages=[
             {"role": "system", "content": build_system_prompt(topic_dict)},
             {"role": "user", "content": event},
