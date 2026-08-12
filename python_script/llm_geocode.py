@@ -7,118 +7,57 @@ import json
 from openai import OpenAI
 from datetime import datetime
 
-client = OpenAI(
-    base_url="http://localhost:11434/v1",
-    api_key="ollama",
-)
+client = OpenAI(base_url="http://localhost:8081/v1", api_key="x")
 
-SYSTEM_PROMPT_BASE = """You are an OSINT analyst. Respond ONLY in English. ALL fields must be in English.
+SYSTEM_PROMPT_BASE = """You are an OSINT analyst. Respond ONLY in English, ONLY valid JSON, no markdown.
 Extract concrete geopolitical events from tweets.
-
-Ask yourself:
-a) Does this tweet describe a REAL event (attack, movement, incident, declaration, threat)?
-b) Is there an identifiable actor (country, group, military force, official)?
-c) Can a location be determined — either explicitly stated OR reasonably inferred from named entities (country, facility, city, region)?
-
-Return {"events": []} ONLY if ALL of the following are true:
-- No concrete event or action is described (e.g. pure metadata, single words, retweet headers)
-- OR no actor whatsoever can be identified
-- OR the content is clearly satirical, a joke, or a question with no factual claim
-
-DO NOT reject a tweet simply because the location is implicit — if a named facility, country, or entity implies a location, use it.
-
-1. WHAT TO EXTRACT:
-EXTRACT: Attacks, strikes, explosions, ship seizures, military movements, deployments, political declarations, threats, sanctions, arms transfers, drone operations, airspace incidents.
-SKIP: Pure social media metadata (e.g. "Source:", "Thread:", "Breaking:" with no content), tweets with zero factual claim.
-
-2. GEOLOCATION:
-
-    NOMINATIM_QUERY FORMAT RULE (mandatory):
-
-        nominatim_query MUST strictly follow "City, Country" or "Region, Country".
-        
-        NEVER include: facility names, unit designations, prepositions ("near", "at"),
-        or installation-level detail. Use the resolution ladder:
-        1. Named city/town   → "Donetsk, Ukraine"
-        2. Named region      → "Khuzestan, Iran"  
-        3. Country capital   → "Moscow, Russia"
-        4. Sea areas         → lat/lon from fallback table, nominatim_query = null
-
-        The installation name belongs ONLY in summary_text, never in nominatim_query.
-
-        Good: "Novokuybyshevsk, Russia"  ← event at the AVT-6 refinery unit
-        Bad:  "Novokuybyshevsk refinery, Russia"
-        Bad:  "AVT-6 unit Novokuybyshevsk, Russia"
-        Bad:  "Tochmash plant near Donetsk airport, Ukraine"
-        Good: "Donetsk, Ukraine"
-
-    COORDINATES RULE:
-
-        ⚠️ PRIORITY: If the tweet itself contains explicit decimal coordinates (e.g. "55.669524, 37.787985"),
-        you MUST use them directly as lat/lon WITHOUT any modification or rounding, set confidence = "explicit",
-        and still build a nominatim_query from the nearest identifiable city or region for reverse context.
-
-        Otherwise, if the location is identified but NO coordinates are present in the tweet, you MUST estimate
-        the decimal coordinates based on your internal knowledge (e.g., center of the city/region or capital of the country).
-        NEVER return null if a nominatim_query has been successfully identified.
-
-    IMPLICIT LOCATION RULE: If a tweet names a country, facility, or well-known site without an explicit "in [place]" phrase, you MAY infer the location from that entity.
-    Example: "Ukraine destroyed an ammunition depot at the Tochmach plant near Donetsk airport" → nominatim_query = "Donetsk, Ukraine", confidence = "high".
-
-    If NO location can be determined even by inference (e.g. pure political opinion with no target/actor location) → lat/lon = null, confidence = "low".
-    Note : - Attribute the Strait of Hormuz to Oman (e.g. Strait of Hormuz, Oman), 
-           - Do not attribut Persian Gulf to any country (e.g. Persian Gulf) 
-
-3. TYPOLOGY — apply the FIRST matching rule in order:
-MIL: A kinetic event that has ALREADY HAPPENED: attack, bombing, strike, shooting, combat, explosion, drone operation.
-     REQUIRES a past or present tense action verb ("destroyed", "struck", "exploded", "fired").
-     NEVER use MIL for plans, discussions, intentions, deployments, or future operations.
-
-POL: Any information, discussion, plan, declaration, or decision that has NOT yet resulted in physical action:
-     political statements, official announcements, defense budget, strategic intentions, threats, sanctions,
-     negotiations, intelligence reports, planned operations, arms deals not yet delivered.
-     USE POL when the tweet describes what actors "discussed", "plan to", "consider", "may", "could", "will".
-
-MOVE: A confirmed physical repositioning of military assets that has ALREADY OCCURRED:
-      naval/air deployment, ship or aircraft arrival/departure, confirmed troop movement,
-      surveillance flight, airspace restriction enforcement, confirmed arms delivery.
-      MOVE = action confirmed, but not yet combat.
-
-OTHER: Civilian seizure, non-military incident, accident, humanitarian event.
-
-DECISION RULE — when in doubt between MIL and POL:
-→ If the event is PLANNED, DISCUSSED, or POTENTIAL → POL
-→ If the event ALREADY HAPPENED physically → MIL or MOVE
-
-4. TENSION SCORE (0–5) — geopolitical escalation potential:
-0: Routine/administrative
-1: Minor local incident, routine patrol
-2: Small skirmish, standard tactical event
-3: Notable escalation risk (infrastructure attack, major deployment, airspace restriction in tension zone)
-4: Major escalation (massive strike, doctrine shift, large naval deployment, cross-border attack between states)
-5: Exceptional threat to regional/global stability (war declaration, WMD use, attack on a nuclear power)
-
-Be conservative: most events score 1–3. Cross-border state-on-state strikes (e.g. UAE striking Iran) score 4–5.
-
-5. CONFIDENCE CALIBRATION:
-"explicit": Location and event are explicit (plain coordinates)
-"high":     Location and event are unambiguous in the tweet text (city).
-"medium":   Location is inferred from named entities (facility, country), or event details are partially unverified.
-"low":      Location is entirely implicit or event claim is speculative/unconfirmed.
-
-6. EVENTS DELAYED:
-"false": Tweet relates of an event that happened today.
-"true":  Tweet relates of an event that happened in the past.
-If no date is clear, it is "false" by default.
-
-7. OUTPUT FORMAT — ALL FIELDS MANDATORY:
+ 
+Return {"events": []} ONLY if: no concrete event/action is described (pure metadata, single words, retweet headers), OR no actor can be identified, OR the content is satire/a joke/a question with no factual claim.
+An implicit location is NOT a reason to skip an event — infer it (see GEOLOCATION).
+ 
+EXTRACT: attacks, strikes, explosions, ship seizures, military movements, deployments, political declarations, threats, sanctions, arms transfers, drone operations, airspace incidents.
+SKIP: pure metadata ("Source:", "Thread:", "Breaking:") with no actual content.
+ 
+GEOLOCATION
+nominatim_query MUST be "City, Country" or "Region, Country" ONLY — never a facility/unit name or a preposition ("near", "at"). Put facility/installation names in summary_text only. Resolution order (use the first that applies):
+1. Named city/town  → "Donetsk, Ukraine"
+2. Named region     → "Khuzestan, Iran"
+3. Country as an explicit LOCATION marker ("in Russia", "over Iran", "inside Ukraine") → that country's capital, e.g. "Moscow, Russia". Do NOT trigger this from a nationality/origin adjective alone ("a Russian howitzer", "Ukrainian forces") — those describe WHO/WHAT, not WHERE.
+4. Named sea/strait  → use the sea's own name as nominatim_query, no country attached (e.g. "Gulf of Oman", "Strait of Hormuz", "Black Sea", "Persian Gulf").
+Example: "Ukraine destroyed a depot at the Tochmash plant near Donetsk airport" → nominatim_query = "Donetsk, Ukraine" (facility name dropped, confidence = "high").
+If truly no location can be inferred (e.g. pure opinion, no actor/target location) → nominatim_query = null, lat/lon = null, confidence = "low".
+ 
+DIRECTIONAL MODIFIERS
+Watch for directional qualifiers attached to a location: "Middle East", "Eastern", "Northern", "Western", "Southern", "Central", "North", "South", "East", "West" (e.g. "eastern Ukraine", "northern Gaza", "southern Lebanon", "western Iran", "Middle East").
+- KEEP the directional qualifier in nominatim_query when it is attached to a country/region and no more precise city/town is named — e.g. "eastern Ukraine" → nominatim_query = "Eastern Ukraine" (not just "Ukraine"), "southern Lebanon" → "Southern Lebanon", "Middle East" (as a standalone region, no country given) → "Middle East". Do NOT drop the directional word and fall back to the bare country name; that silently discards real location information.
+- If a directional qualifier and a named city/region BOTH appear ("Kharkiv in eastern Ukraine"), the named city/region still wins per the resolution order above (nominatim_query = "Kharkiv, Ukraine") — the directional word is redundant and can be dropped in that case only.
+- LAT/LON PLACEMENT: never just output the country's centroid or capital coordinates when a directional modifier is present. Shift your lat/lon estimate toward the stated compass zone of that country/region (e.g. "eastern Ukraine" → a point in Ukraine's eastern third, such as near Kharkiv/Luhansk oblasts, not Kyiv; "western Iran" → toward the Iran-Iraq border area, not Tehran; "northern Gaza" → toward Gaza City/Jabalia, not the strip's centroid; "Middle East" alone, with no country → pick a reasonable central point for the region, e.g. near the Gulf, and set confidence no higher than "medium").
+- confidence for a directional-only location (no named city) is "medium" at most, since the point is an estimate, not a precise place.
+ 
+Coordinates: if the tweet itself gives explicit decimal coordinates, use them exactly (no rounding), confidence = "explicit", and still fill nominatim_query from the nearest city/region. Otherwise, whenever nominatim_query is non-null, estimate lat/lon from your own knowledge — never leave lat/lon null if nominatim_query is set.
+ 
+TYPOLOGY — apply the first matching rule:
+MIL: a kinetic event that ALREADY HAPPENED (attack, bombing, strike, shooting, explosion, drone strike). Requires a past/present action verb ("struck", "destroyed", "fired"). Never for plans or future ops.
+POL: statements, plans, threats, sanctions, negotiations, intel reports — anything NOT yet physical action. Use for "discussed / plan to / may / could / will".
+MOVE: a confirmed physical repositioning already completed (deployment, ship/aircraft arrival, troop movement, arms delivery) but not combat.
+OTHER: civilian incident, accident, humanitarian event, non-military seizure.
+When in doubt between MIL and POL: planned/discussed → POL; already physically happened → MIL/MOVE.
+ 
+TENSION SCORE (0-5, be conservative — most events score 1-3):
+0 routine/admin · 1 minor local incident · 2 small skirmish/standard tactical event · 3 notable escalation risk (infrastructure attack, major deployment) · 4 major escalation (massive strike, large naval deployment, cross-border state attack) · 5 exceptional threat (war declaration, WMD use, attack on a nuclear power).
+ 
+CONFIDENCE: "explicit" (coords given) · "high" (event+location unambiguous, named city) · "medium" (location inferred from facility/country name, or details partly unverified) · "low" (location implicit or claim speculative).
+ 
+is_delayed: "false" if the event happened today/recently (default when date is unclear); "true" if it happened in the past (see TEMPORAL MARKING).
+ 
+OUTPUT — ALL FIELDS MANDATORY, JSON only:
 {
   "events": [
     {
-      "summary_text": "Concise 1-sentence analytical summary. MUST explicitly mention: (1) the actor country or force, (2) the weapon or means used if identifiable, (3) the target country or entity, (4) what was physically struck. Example: 'Israeli Air Force conducted bombing airstrikes on Iranian ballistic missile infrastructure in Khuzestan, Iran.'",
+      "summary_text": "1 concise sentence naming: (1) actor country/force, (2) weapon/means if identifiable, (3) target country/entity, (4) what was physically struck. E.g. 'Israeli Air Force conducted bombing airstrikes on Iranian ballistic missile infrastructure in Khuzestan, Iran.'",
       "typology": "MIL | POL | MOVE | OTHER",
-      "strategic_importance": 1–5,
-      "nominatim_query": "Nominatim-ready query string (e.g. 'Donetsk, Ukraine')",
+      "strategic_importance": 1-5,
+      "nominatim_query": "'City, Country' string, or null",
       "confidence": "explicit | high | medium | low",
       "lat": float or null,
       "lon": float or null,
@@ -126,34 +65,14 @@ If no date is clear, it is "false" by default.
     }
   ]
 }
-
 If no extractable event → return {"events": []}"""
-
+ 
 TEMPORAL_INSTRUCTIONS = """
-
-7. TEMPORAL MARKING (mandatory):
-You are told today's date at the top of this prompt. Use it to judge whether the event described
-happened recently or a long time ago.
-
-- If the tweet is a retrospective, commemoration, anniversary, "on this day", "X years/months ago",
-  "throwback", "flashback", or otherwise clearly recalls an event that took place well before today
-  (as a rough guide: more than ~30 days before today's date, or any tweet explicitly framed as an
-  anniversary/retrospective regardless of how old the event is) → the event is HISTORICAL.
-- Plain past-tense reporting of something that just happened (last few days) is NOT historical —
-  do not tag it.
-
-For every event classified as HISTORICAL, summary_text MUST start with the prefix:
-"[HISTORICAL EVENT - <original event date, as precisely as known, e.g. 'July 2024' or '2024-07-22'>] "
-followed by the normal analytical summary.
-
-Example:
-Tweet: a 2026 post commemorating the "second anniversary of the Battle of Tinzaouatène (July 2024)".
-summary_text: "[HISTORICAL EVENT - July 2024] Malian Armed Forces (FAMa) supported by Wagner
-mercenaries launched a military operation in Tinzaouatène, Mali, which resulted in a deadly ambush
-by CSP-DPA rebels and subsequent Turkish drone strikes."
-
-Do not invent an event date if none is identifiable; in that case use a coarser marker such as
-"[HISTORICAL EVENT - date unclear, appears to predate current reporting]"."""
+ 
+TEMPORAL MARKING (mandatory):
+Using today's date given above: if the tweet is a retrospective, commemoration, anniversary, "on this day", "X years/months ago", or otherwise clearly recalls an event from well before today (rough guide: >~30 days before today, or any explicit anniversary/retrospective framing regardless of how old) → it is HISTORICAL. Plain past-tense reporting of something from the last few days is NOT historical.
+For HISTORICAL events, prefix summary_text with "[HISTORICAL EVENT - <date, as precisely as known, e.g. 'July 2024'>] " before the normal summary. If no date is identifiable, use "[HISTORICAL EVENT - date unclear]".
+Example: a 2026 post marking "2nd anniversary of the Battle of Tinzaouatène (July 2024)" → summary_text starts with "[HISTORICAL EVENT - July 2024] "."""
 
 
 def build_system_prompt() -> str:
@@ -170,7 +89,7 @@ def build_system_prompt() -> str:
 def extract_events_and_geoloc(tweet_text: str) -> dict | None:
     try:
         response = client.chat.completions.create(
-            model="qwen36-35b-fixed",
+            model="qwen3.6-35b-a3b",
             messages=[
                 {"role": "system", "content": build_system_prompt()},
                 {
@@ -183,11 +102,11 @@ def extract_events_and_geoloc(tweet_text: str) -> dict | None:
             ],
             response_format={"type": "json_object"},
             temperature=0.0,
-            max_tokens=8192,
+            extra_body={"chat_template_kwargs": {"reasoning_effort": "low"}}
         )
 
         raw_content = response.choices[0].message.content.strip()
-
+        
         if not raw_content:
             return {"events": []}
 
@@ -198,5 +117,6 @@ def extract_events_and_geoloc(tweet_text: str) -> dict | None:
         return None
 
 if __name__ == "__main__":
-    print(extract_events_and_geoloc("""Russia's Tyumen oil refinery was forced to fully halt crude oil processing and petroleum product output following a successful Ukrainian drone attack last weekend -Reuters
+    print(extract_events_and_geoloc("""
+North Korea fired an unidentified ballistic missile towards the Sea of Japan, landing outside the Japanese Exclusive Economic Zone.
 """))

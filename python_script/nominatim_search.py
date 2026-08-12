@@ -17,6 +17,19 @@ def nominatim_geolocation_closest(q, ref_lat: float, ref_long:float, limit=50):
     Interroge Nominatim pour tous les résultats correspondant à `q`
     et renvoie le point [lat, lon] le plus proche de (ref_lat, ref_long).
     """
+    directional_keywords = [
+    'Middle East',
+    'Eastern', 'Northern', 'Western', 'Southern', 'Central',
+    'North', 'South', 'East', 'West'
+    ]
+
+    if not q: 
+        return None
+
+    if any(keyword.lower() in q.lower() for keyword in directional_keywords):
+        return None
+
+    
     url = "https://nominatim.openstreetmap.org/search"
     params = {
         "q": q,
@@ -30,17 +43,20 @@ def nominatim_geolocation_closest(q, ref_lat: float, ref_long:float, limit=50):
     features = r.json().get("features", [])
 
     if not features:
-        return None
-    
-    directional_keywords = [
-    'Middle East',
-    'Eastern', 'Northern', 'Western', 'Southern', 'Central',
-    'North', 'South', 'East', 'West'
-    ]
+        fallback_search = q.split(",")[0]
+        params = {
+            "q": fallback_search,
+            "format": "geojson",
+            "language": "en",
+            "limit": limit, 
+        }
+        headers = {'User-Agent': 'osint-observer-geolocation'}
 
-    if any(keyword.lower() in q.lower() for keyword in directional_keywords):
-        return None
-    
+        r = requests.get(url, headers=headers, params=params)
+        features = r.json().get("features", [])
+        if not features:
+            return None    
+        
     candidates = []
     for feature in features:
         geometry = feature["geometry"]
@@ -68,5 +84,5 @@ def nominatim_geolocation_closest(q, ref_lat: float, ref_long:float, limit=50):
 
 
 if __name__ == "__main__":
-    result = nominatim_geolocation_closest("North, Russia", 57.1551, 65.5833)
+    result = nominatim_geolocation_closest("British Indian Ocean Territory, United Kingdom", 72.53, 7.34)
     print(result)

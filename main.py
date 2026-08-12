@@ -94,14 +94,15 @@ app.add_middleware(
 @app.get("/bootstrap")
 def get_bootstrap():
     """
-    Regroupe en une seule requête HTTP les couches "statiques" nécessaires
-    au chargement initial de la carte :
+    Bundles all the "static" layers needed for the map's initial load into
+    a single HTTP request:
     shipping_lanes, chokepoints, conflict_borders, conflict_theaters,
     conflict_areas, world_areas, topics_location, topics_areas,
     strait_closure, military_lines, tweets, topics, topic_summaries.
 
-    Une seule connexion est empruntée au pool pour exécuter les requêtes
-    (au lieu d'ouvrir/fermer une connexion par endpoint côté front).
+    A single connection is borrowed from the pool to run all the queries
+    (instead of opening/closing one connection per endpoint on the
+    frontend side).
 
     Returns:
         dict: {
@@ -114,10 +115,10 @@ def get_bootstrap():
             "topics_location": <GeoJSON>,
             "topics_areas": <GeoJSON>,
             "strait_closure": [...],
-            "military_lines": <GeoJSON>,  # fenêtre fixe de 30 jours
-            "tweets": <GeoJSON>,          # fenêtre fixe de 30 jours
-            "topics": [...],              # liste des topics "importants" (importance_score >= 4)
-            "topic_summaries": {...},     # { topic_id: [ {tweet_id, created_at, summary, summary_title}, ... ] }, 15 max par topic
+            "military_lines": <GeoJSON>,  # fixed 30-day window
+            "tweets": <GeoJSON>,          # fixed 30-day window
+            "topics": [...],              # list of "important" topics (importance_score >= 4)
+            "topic_summaries": {...},     # { topic_id: [ {tweet_id, created_at, summary, summary_title}, ... ] }, 15 max per topic
         }
     """
     with get_db() as conn:
@@ -628,7 +629,10 @@ FROM
                         LEFT JOIN WORLD_AREAS WA ON wa.entity_name = aggressor
                         LEFT JOIN WORLD_CAPITALS WC ON ST_CONTAINS (WA.GEOM, WC.GEOM)
                     WHERE
-                        T.CREATED_AT >= NOW() - INTERVAL '30 days'
+                        t.created_at >= NOW() - INTERVAL '30 days'
+                        AND t.is_duplicate = 'false'
+                        AND t.geom IS NOT NULL
+                        AND (t.is_delayed = 'false' OR t.is_delayed IS NULL)
                     """
                 )
 
@@ -707,6 +711,11 @@ FROM
         WHERE
             TOPIC_ID IS NOT NULL
             AND IMPORTANCE_SCORE >= 4
+            AND IS_DUPLICATE = 'false'
+            AND (
+                IS_DELAYED IS NULL
+                OR IS_DELAYED = 'false'
+            ) 
         GROUP BY
             LABEL,
             COUNTRIES,
@@ -831,7 +840,12 @@ def get_graph_events(
                     LEFT JOIN TOPICS ON T.FK_TOPIC = TOPICS.TOPIC_ID
                 WHERE
                     T.CREATED_AT >= (SELECT PERIOD_START FROM ANCHOR) - INTERVAL '30 days'
-                    AND {where_clause}
+                    AND {where_clause} and             TOPIC_ID IS NOT NULL
+
+            AND (
+                IS_DELAYED IS NULL
+                OR IS_DELAYED = 'false'
+            ) 
             ),
             FULL_SERIES AS (
                 SELECT

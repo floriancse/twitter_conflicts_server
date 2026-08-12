@@ -25,8 +25,8 @@ def get_db_connection():
 
 
 client = OpenAI(
-    base_url="http://localhost:11434/v1",
-    api_key="ollama",
+    base_url="http://localhost:8081/v1",
+    api_key="",
 )
 
 conn = get_db_connection()
@@ -90,14 +90,14 @@ def build_system_prompt(topic_dict: dict):
 
 def extract_topic(event: str):
     response = client.chat.completions.create(
-        model="qwen36-35b-fixed",
+        model="qwen3.6-35b-a3b",
         messages=[
             {"role": "system", "content": build_system_prompt(topic_dict)},
             {"role": "user", "content": event},
         ],
         response_format={"type": "json_object"},
         temperature=0.0,
-        max_tokens=512,
+        max_tokens=1024,
     )
 
     raw = response.choices[0].message.content.strip()

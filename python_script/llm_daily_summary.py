@@ -18,8 +18,8 @@ DB_CONFIG = {
 }
 
 client = OpenAI(
-    base_url="http://localhost:11434/v1",
-    api_key="ollama",
+    base_url="http://localhost:8081/v1",
+    api_key="",
 )
 
 def build_system_prompt() -> str:
@@ -40,7 +40,7 @@ Guidelines:
   reported today but the facts happened days/months/years earlier, such as an anniversary, retrospective,
   or delayed report), you MUST contextualize it with the real event date — in BOTH the summary AND the title.
   Never let a past event read as if it happened today.
-
+  Note : "USF" = Unmanned Systems Forces of Ukraine → Ukraine.
 Return a JSON object with this exact structure:
 {{
   "summary": "<1 or 2 sentence journalistic summary focused on the single most significant event>",
@@ -79,7 +79,7 @@ def _call_llm(user_content: str) -> dict | None:
     """Call the LLM and return a parsed JSON dict with 'summary' and 'title'."""
     try:
         response = client.chat.completions.create(
-            model="qwen36-35b-fixed",
+            model="qwen3.6-35b-a3b",
             messages=[
                 {"role": "system", "content": build_system_prompt()},
                 {"role": "user", "content": user_content},
@@ -161,7 +161,7 @@ def summarize_from_db():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    for i in range(1):
+    for i in range(3):
         print(f"[DB] Processing day offset: {i}")
         cur.execute(SQL_GET_EVENTS, (i,))
         rows = cur.fetchall()

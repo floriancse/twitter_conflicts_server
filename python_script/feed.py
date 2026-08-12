@@ -1,19 +1,16 @@
 """
-Script de collecte et géolocalisation d'événements OSINT
-=========================================================
+OSINT event collection and geolocation script
+===============================================
 ...
 """
 
-import json
 import requests
 import psycopg2
-import re
 import time
 from rss_to_json import parse_to_json
 from llm_geocode import extract_events_and_geoloc
 import os
 from dotenv import load_dotenv
-from time import gmtime, strftime
 from flag_db_duplicates import flag_duplicates
 from llm_aggressor_extraction import generate_aggressor
 from save_threat_snapshot import save_threat_snapshot
@@ -22,6 +19,7 @@ from translate_tweet_text import translate_to_english
 from llm_strait_state import save_strait_state
 from llm_insert_topic import insert_topics
 from llm_daily_summary import summarize_from_db
+import subprocess
 load_dotenv()
 
 # ==============================================================================
@@ -37,6 +35,21 @@ DB_CONFIG = {
     "sslmode":  os.getenv("DB_SSLMODE", "disable"),
 }
 
+LLAMA_SERVER_PORT = 8081
+LLAMA_SERVER_CMD = [
+    "llama-server",
+    "-hf", "unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-IQ3_XXS",
+    "--port", str(LLAMA_SERVER_PORT),
+    "-ngl", "999",
+    "--n-cpu-moe", "4",
+    "--ctx-size", "32768",
+    "-fa", "on",
+    "--cache-type-k", "q8_0",
+    "--cache-type-v", "q8_0",
+    "--reasoning", "off",
+]
+LLAMA_SERVER_STARTUP_TIMEOUT = 300  # seconds to wait for the model to load
+
 SOURCES = [
     "@GeoConfirmed", "@sentdefender", "@OSINTWarfare",
     "@Osinttechnical", "@Conflict_Radar", "@NOELreports",
@@ -50,7 +63,7 @@ SOURCES = [
 ]
 
 # ==============================================================================
-# REQUÊTES SQL
+# SQL QUERIES
 # ==============================================================================
 
 SQL_GET_TWEET_IDS = "SELECT tweet_id FROM tweets"
@@ -100,11 +113,11 @@ SQL_INSERT_DAILY_CONFLICTS = """
         UPDATED_AT = NOW();
     """
 # ==============================================================================
-# CONNEXION
+# CONNECTION
 # ==============================================================================
 
 def get_db_connection():
-    """Établit et retourne une connexion à la base de données PostgreSQL"""
+    """Establishes and returns a connection to the PostgreSQL database"""
     return psycopg2.connect(
         host=DB_CONFIG["host"],
         port=DB_CONFIG["port"],
@@ -113,16 +126,55 @@ def get_db_connection():
         password=DB_CONFIG["password"],
     )
 
+
+def start_llama_server():
+    """Starts llama-server in the background and waits until it's ready to
+    accept requests (model fully loaded), or raises after the timeout."""
+
+    # Skip if a server is already running on that port
+    health_check = subprocess.run(
+        ["lsof", "-ti", f":{LLAMA_SERVER_PORT}"],
+        capture_output=True, text=True
+    )
+    if health_check.stdout.strip():
+        print(f"Serveur llama.cpp déjà actif sur le port {LLAMA_SERVER_PORT}, réutilisation.")
+        return None
+
+    print("Démarrage du serveur llama.cpp...")
+    process = subprocess.Popen(
+        LLAMA_SERVER_CMD,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    start_time = time.time()
+    while time.time() - start_time < LLAMA_SERVER_STARTUP_TIMEOUT:
+        try:
+            resp = requests.get(f"http://localhost:{LLAMA_SERVER_PORT}/health", timeout=2)
+            if resp.status_code == 200:
+                print(f"Serveur llama.cpp prêt ({time.time() - start_time:.0f}s).")
+                return process
+        except requests.exceptions.RequestException:
+            pass
+        time.sleep(2)
+
+    process.kill()
+    raise RuntimeError(f"llama-server n'a pas démarré dans les {LLAMA_SERVER_STARTUP_TIMEOUT}s impartis.")
+
 # ==============================================================================
-# SCRIPT PRINCIPAL
+# MAIN SCRIPT
 # ==============================================================================
+
+llama_process = start_llama_server()
 
 conn = get_db_connection()
 cur = conn.cursor()
 
+# Preload existing tweet IDs to skip anything already stored
 cur.execute(SQL_GET_TWEET_IDS)
 tweet_in_db = [i[0] for i in cur.fetchall()]
 
+# Fetch and process each source's RSS feed
 for source in SOURCES:
     print(source)
 
@@ -139,9 +191,11 @@ for source in SOURCES:
 
             tweet_text = item["title"]
 
+            # Skip retweets, link-only posts, and update posts
             if tweet_text.startswith(("RT", "x.com", "Update")):
                 continue
 
+            # Ask the LLM to extract events and geolocation data from the tweet text
             try:
                 llm_to_geocode = extract_events_and_geoloc(tweet_text)
             except Exception as e:
@@ -149,11 +203,11 @@ for source in SOURCES:
                 continue
 
             if llm_to_geocode is None:
-                print(tweet_text, item["link"])
                 continue
 
             events = llm_to_geocode.get("events", [])
-            
+
+            # No event extracted: store the tweet with minimal info and flag it as a duplicate
             if not events:
                 cur.execute(SQL_INSERT_TWEET_MINIMAL,
                     (item["id"], item["date"], item["link"], item["author"], tweet_text, 'true'))
@@ -173,6 +227,7 @@ for source in SOURCES:
             location_source = "LLM"
             is_delayed = event.get("is_delayed")
 
+            # If the LLM's location isn't explicit, refine it via Nominatim
             if location_accuracy != "explicit":
                 nominatim_search = nominatim_geolocation_closest(nominatim_query, lat, lon)
                 if nominatim_search:
@@ -182,6 +237,7 @@ for source in SOURCES:
             geom_wkt = f"POINT({lon} {lat})" if lat and lon else None
             print(nominatim_query, geom_wkt, summary_text)
 
+            # Store the fully processed tweet with its geolocation and metadata
             cur.execute(SQL_INSERT_TWEET_FULL, (
                 item["id"], item["date"], item["link"], item["author"], tweet_text,
                 location_accuracy, strategic_importance, typology,
@@ -189,6 +245,7 @@ for source in SOURCES:
             ))
             conn.commit()
 
+            # Store any attached images for this tweet
             for img in item["images"]:
                 cur.execute(SQL_INSERT_IMAGE, (item["id"], img))
                 conn.commit()
@@ -196,6 +253,7 @@ for source in SOURCES:
     except Exception as error:
         print(error)
 
+# Post-processing: dedupe, snapshot threats, extract aggressors, and summarize
 flag_duplicates()
 save_threat_snapshot()
 generate_aggressor()
@@ -209,4 +267,23 @@ conn.commit()
 cur.close()
 conn.close()
 
-get_time = strftime("%Y-%m-%d %H:%M:%S", gmtime())
+# Stop the local llama.cpp server (llama-server) to free VRAM once processing is done
+try:
+    if llama_process is not None:
+        llama_process.terminate()
+        llama_process.wait(timeout=30)
+        print("Serveur llama.cpp arrêté (process démarré par ce script).")
+    else:
+        # We didn't start it (was already running) — stop it by port instead
+        result = subprocess.run(
+            ["lsof", "-ti", f":{LLAMA_SERVER_PORT}"],
+            capture_output=True, text=True
+        )
+        pids = [pid for pid in result.stdout.strip().splitlines() if pid]
+        if pids:
+            subprocess.run(["kill", "-15", *pids])
+            print(f"Serveur llama.cpp arrêté (port {LLAMA_SERVER_PORT}, PID {', '.join(pids)})")
+        else:
+            print(f"Aucun serveur llama.cpp trouvé sur le port {LLAMA_SERVER_PORT}")
+except Exception as e:
+    print("Impossible de stopper llama-server :", e)

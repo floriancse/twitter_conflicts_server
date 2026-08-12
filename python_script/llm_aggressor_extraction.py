@@ -60,8 +60,8 @@ SQL_GET_CAPITALS = """
 """
 
 client = OpenAI(
-    base_url="http://localhost:11434/v1",
-    api_key="ollama",
+    base_url="http://localhost:8081/v1",
+    api_key="",
 )
 
 # Closed list of allowed weapon types
@@ -297,7 +297,7 @@ def extract_quadruplet(summary: str, countries: list[str]) -> dict | None:
     try:
         
         response = client.chat.completions.create(
-            model="qwen36-35b-fixed",
+            model="qwen3.6-35b-a3b",
             messages=[
                 {"role": "system", "content": build_system_prompt(countries)},
                 {"role": "user", "content": summary},

@@ -18,8 +18,8 @@ DB_CONFIG = {
 }
 
 client = OpenAI(
-    base_url="http://localhost:11434/v1",
-    api_key="ollama",
+    base_url="http://localhost:8081/v1",
+    api_key="",
 )
 
 STRAITS = [
@@ -195,7 +195,7 @@ def infer_strait_status(tweets: list[dict], strait: dict) -> dict:
     }}"""
 
     response = client.chat.completions.create(
-        model="qwen36-35b-fixed",
+        model="qwen3.6-35b-a3b",
         messages=[{"role": "user", "content": prompt}],
         temperature=0,
         response_format={"type": "json_object"}
