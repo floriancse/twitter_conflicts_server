@@ -7,7 +7,8 @@ from openai import OpenAI
 import psycopg2
 import os
 from dotenv import load_dotenv
-
+from token_tracker import track
+import token_tracker
 load_dotenv()
 
 DB_CONFIG = {
@@ -50,13 +51,17 @@ SQL_GET_MIL_TWEETS = """
 """
 
 SQL_GET_CAPITALS = """
-    SELECT a.entity_name,
-           c.name,
-           ST_X(c.geom) AS lon,
-           ST_Y(c.geom) AS lat
-    FROM   world_areas   a
-    LEFT JOIN world_capitals c ON ST_Intersects(a.geom, c.geom)
-    WHERE  c.geom IS NOT NULL
+SELECT
+	A.ENTITY_NAME,
+	C.NAME,
+	ROUND(ST_X (C.GEOM)::NUMERIC, 2) AS LON,
+	ROUND(ST_Y (C.GEOM)::NUMERIC, 2) AS LAT
+FROM
+	WORLD_AREAS A
+	LEFT JOIN WORLD_CAPITALS C ON ST_INTERSECTS (A.GEOM, C.GEOM)
+WHERE
+	C.GEOM IS NOT NULL
+	AND ENTITY_TYPE = 'country'
 """
 
 client = OpenAI(
@@ -72,7 +77,7 @@ WEAPON_TYPES = [
     "Air Defence",
     "Military Aviation",
     "Artillery & Armour",
-    "Small Arms"
+    "Small Arms",
     "Naval Weapons"
 ]
 
@@ -106,130 +111,105 @@ def build_system_prompt(countries: list[str]) -> str:
     group_list   = ", ".join(f'"{g}"' for g in ARMED_GROUPS)
     objtype_list = ", ".join(f'"{o}"' for o in OBJECTIVE_TYPES)
 
-    return f"""You are an OSINT analyst. Extract exactly one JSON object from the conflict summary.
+    return f"""You are an OSINT analyst. You will receive a batch of conflict summaries, each
+    labeled with an EVENT_ID (an opaque identifier — treat it as a label, not as data to
+    interpret). For EACH summary, independently extract one quintuplet
+    (actor, weapon_type, target, objective, objective_type) following the rules below.
+    Judge every event ONLY on its own text — do not let one event's content influence another's.
 
-    Respond ONLY with a raw JSON object — no markdown, no commentary, no extra keys:
-    {{"actor": "...", "weapon_type": "...", "target": "...", "objective": "...", "objective_type": "..."}}
+    You MUST return exactly one result per EVENT_ID you were given, in the same order, with no
+    omissions and no extra entries. Respond ONLY with a raw JSON object — no markdown, no
+    commentary, no extra keys:
+    {{"results": [
+      {{"event_id": "<EVENT_ID as given>", "actor": "...", "weapon_type": "...", "target": "...", "objective": "...", "objective_type": "..."}}
+    ]}}
 
-    ━━━ RULE 1 — NON-KINETIC EVENTS ━━━
-    No confirmed physical impact (deployments, alerts, captures, troop movements, negotiations,
-    announcements, flight restrictions, overflight/in-transit sightings with no reported hit,
-    raw drone/missile counts with no reported impact) → all fields null, including objective_type.
+    RULE 1 — NON-KINETIC: no confirmed physical impact (deployments, alerts, captures, troop
+    movements, negotiations, announcements, flight restrictions, overflight/in-transit sightings
+    with no reported hit, raw drone/missile counts with no impact) → all fields null.
 
-    ━━━ RULE 2 — ACTOR (who physically fires/operates the weapon?) ━━━
-    NOT the defending force. NOT the country supplying the weapon.
-    - State militaries → exact country name from the countries list.
-    - Named armed groups → exact name from the armed groups list. Never null when explicitly named.
-    - Unknown/unnamed attacker, passive voice ("was struck"), unnamed proxy/militia ("pro-Iranian
-      groups") → actor = null.
-    - "USF" = Unmanned Systems Forces of Ukraine → Ukraine. "IRGC" → Iran. Wagner/Africa Corps → Russia.
+    RULE 2 — ACTOR (who fires/operates the weapon, never the defender or the supplier country):
+    state military → exact country name from the list; named armed group → exact name from the
+    group list, never null when explicitly named; unknown/unnamed attacker, passive voice
+    ("was struck"), unnamed proxy/militia → null.
+    Aliases: "USF" (Unmanned Systems Forces, Ukraine) → Ukraine; "IRGC" → Iran; Wagner/Africa Corps → Russia.
 
-    ━━━ RULE 3 — TARGET (whose territory absorbs the impact?) ━━━
-    Soil rule: target = country whose SOIL is hit, regardless of asset ownership (a US base hit
-    in Iraq → target = "Iraq").
-    Occupied territory (Crimea, Donetsk, Luhansk, Zaporizhzhia, Kherson oblasts; Oryol, Belgorod,
-    Kursk, Bryansk) → target = "Russia". Government-controlled Ukraine → target = "Ukraine".
-    Vessel: military vessel → flag state/operator; commercial vessel → flag state if in countries
-    list, else null; unclear "shadow fleet" tankers → null.
-    Multi-target: pick the country with the most significant damage. Single string, never a list.
+    RULE 3 — TARGET (whose territory absorbs the impact): soil rule — target = country whose SOIL
+    is hit regardless of asset ownership (US base hit in Iraq → target "Iraq"). Occupied territory
+    (Crimea, Donetsk, Luhansk, Zaporizhzhia, Kherson; Oryol, Belgorod, Kursk, Bryansk) → "Russia";
+    government-controlled Ukraine → "Ukraine". Vessel: military → flag state/operator; commercial →
+    flag state if in list else null; unclear "shadow fleet" → null. Multi-target → country with the
+    most significant damage, single string never a list.
 
-    ━━━ RULE 4 — INTERCEPTION (read carefully) ━━━
-    When a weapon is SHOT DOWN/INTERCEPTED/DESTROYED in flight: actor = who LAUNCHED it,
-    target = where it fell. The intercepting/defending force is NEVER the actor.
-    Example: "Ukrainian crew shot down a Russian Shahed over Odesa" → actor = "Russia"
-    (launched it), target = "Ukraine" (fell there) — even though Ukraine did the shooting.
-    Friendly fire: a weapon that malfunctions and hits its own side → actor = target = that country.
+    RULE 4 — INTERCEPTION: when a weapon is shot down/intercepted/destroyed in flight, actor = who
+    LAUNCHED it, target = where it FELL — the intercepting/defending force is never the actor
+    (e.g. "Ukraine shot down a Russian Shahed over Odesa" → actor "Russia", target "Ukraine").
+    Friendly fire (weapon malfunctions, hits own side) → actor = target = that country.
 
-    ━━━ RULE 5 — WEAPON_TYPE ━━━
-    Pick the single closest match from this list: {weapon_list}
-    - Drones: FPV, loitering munitions (Shahed, Geran, Lancet), USVs, UAVs.
-    - Missiles: cruise/ballistic/guided missiles (Kh-series, JASSM, LMUR), anti-tank missiles.
-    - Explosives: IEDs, rockets (107mm, Grad), RPGs, MANPADS, grenades, mortars, suicide vests.
-    - Air Defence: ground-based SAM (Tor, Patriot, Buk) as the weapon destroying a target — not
-      when it is the target being hit.
-    - Military Aviation: fixed-wing airstrikes, helicopter gunship attacks.
-    - Artillery & Armour: howitzers, tank cannons, self-propelled guns, field artillery.
-    - Small Arms: rifles, machine guns, sniper fire, handguns.
+    RULE 5 — WEAPON_TYPE, closest single match from: {weapon_list}.
+    Drones: FPV/loitering munitions (Shahed, Geran, Lancet), USVs, UAVs. Missiles: cruise/ballistic/
+    guided (Kh-series, JASSM, LMUR), anti-tank. Explosives: IEDs, rockets (107mm, Grad), RPGs,
+    MANPADS, grenades, mortars, suicide vests. Air Defence: ground-based SAM (Tor, Patriot, Buk) as
+    the weapon destroying a target, not when it's the target. Military Aviation: fixed-wing
+    airstrikes, helicopter gunship. Artillery & Armour: howitzers, tank cannons, field artillery.
+    Small Arms: rifles, machine guns, sniper fire, handguns.
     Unclear but aerial → "Drones"; unclear otherwise → "Explosives"; unidentifiable → null.
 
-    ━━━ RULE 6 — OBJECTIVE (what physical asset was struck?) ━━━
-    2–6 words, specific when possible ("oil refinery", not "infrastructure"/"facility"). Null if
-    no specific target is mentioned.
+    RULE 6 — OBJECTIVE: 2–6 words, specific when possible ("oil refinery", not "infrastructure").
+    Null if no specific target is mentioned.
 
-    ━━━ RULE 6bis — OBJECTIVE_TYPE ━━━
-    Exactly one category from: {objtype_list}
-    - Military: barracks, checkpoints, army positions, armored vehicles, artillery, command posts,
-      military bases/aircraft/ships/vehicles, weapon/ammo depots, fortifications, personnel.
-    - Industrial: refineries, factories, defense-industrial/semiconductor plants.
-    - Energy: substations, power plants, grid/pylons, oil storage/terminals (not refining).
-    - Transport & Infrastructure: bridges, roads, railways, ports, airfields/airports, logistics hubs.
-    - Communications: comms/telecom hubs, radio/radar installations (the installation itself, not
-      a weapon system).
-    - Civilian: any clearly civilian target — houses, apartments, residential areas/neighborhoods
-      (even generic, no proper name needed); hospitals, clinics, schools, universities; hotels,
-      sports clubs, restaurants, entertainment venues; humanitarian sites (Red Cross, aid depots);
-      or a specific named civilian object (car, minibus, gas station, street, market).
-    - Government & Institutional: government buildings, administrative offices, border posts.
-    - Unidentified/Other: objective is null, too vague (bare city/region/"urban area" with no
-      indication of what was hit), or fits no category above. Do not default to "Civilian" for
-      vague locations — only use it when the text clearly signals civilian character.
-    If objective is null, objective_type must also be null.
+    RULE 6bis — OBJECTIVE_TYPE, exactly one from: {objtype_list}.
+    Military: barracks, checkpoints, positions, armored vehicles, artillery, command posts, bases/
+    aircraft/ships/vehicles, depots, fortifications, personnel. Industrial: refineries, factories,
+    defense-industrial/semiconductor plants. Energy: substations, power plants, grid/pylons, oil
+    storage/terminals (not refining). Transport & Infrastructure: bridges, roads, railways, ports,
+    airfields, logistics hubs. Communications: comms/telecom hubs, radio/radar installations
+    (the installation itself, not a weapon system). Civilian: houses, apartments, residential
+    areas/neighborhoods (generic, no proper name needed); hospitals, clinics, schools; hotels,
+    restaurants, entertainment venues; humanitarian sites; or a specific named civilian object
+    (car, minibus, gas station, market). Government & Institutional: government buildings,
+    administrative offices, border posts. Unidentified/Other: objective is null, too vague (bare
+    city/region/"urban area" with no indication of what was hit), or fits no category — do not
+    default to "Civilian" for a vague location, only when the text clearly signals civilian
+    character. If objective is null, objective_type must also be null.
 
-    ━━━ RULE 7 — UNCERTAINTY ━━━
-    "Reportedly/allegedly/suspected/possibly/claimed" → still extract. Pure rumor, no detail → all null.
+    RULE 7 — UNCERTAINTY: "reportedly/allegedly/suspected/possibly/claimed" → still extract.
+    Pure rumor with no detail → all null.
 
-    ━━━ VALID VALUES ━━━
-    actor → country from list OR armed group from list, or null.
-    target → country from list, or null.
-    weapon_type / objective_type → exactly one value from their list, or null.
+    VALID VALUES — actor: country from list OR armed group from list, or null. target: country
+    from list, or null. weapon_type / objective_type: exactly one value from their list, or null.
     Countries: {country_list}
     Armed groups (actor only): {group_list}
 
-    ━━━ EXAMPLES ━━━
+    EXAMPLES (each shown as a single labeled event; apply the same logic per EVENT_ID in your batch)
 
-    # 1. Standard strike
-    "Ukrainian attack drones struck an oil pipeline pumping station in Perm, Russia, setting it ablaze."
-    → {{"actor": "Ukraine", "weapon_type": "Drones", "target": "Russia", "objective": "oil pumping station", "objective_type": "Energy"}}
+    1. Standard strike:
+    EVENT_ID: ex1 — "Ukrainian attack drones struck an oil pipeline pumping station in Perm, Russia, setting it ablaze."
+    → {{"event_id": "ex1", "actor": "Ukraine", "weapon_type": "Drones", "target": "Russia", "objective": "oil pumping station", "objective_type": "Energy"}}
 
-    # 2. Occupied territory → target = "Russia"
-    "Ukrainian FP-2 drones destroyed both transformers at the 220 kV substation in Alchevsk, Luhansk region."
-    → {{"actor": "Ukraine", "weapon_type": "Drones", "target": "Russia", "objective": "power substation transformers", "objective_type": "Energy"}}
+    2. Occupied territory → target "Russia":
+    EVENT_ID: ex2 — "Ukrainian FP-2 drones destroyed both transformers at the 220 kV substation in Alchevsk, Luhansk region."
+    → {{"event_id": "ex2", "actor": "Ukraine", "weapon_type": "Drones", "target": "Russia", "objective": "power substation transformers", "objective_type": "Energy"}}
 
-    # 3. Interception — defending force is NOT the actor
-    "Ukrainian soldier fired a MANPADS from the street in Dnipro, intercepting a Russian UAV."
-    → {{"actor": "Russia", "weapon_type": "Drones", "target": "Ukraine", "objective": "UAV", "objective_type": "Military"}}
+    3. Interception — defending force is NOT the actor:
+    EVENT_ID: ex3 — "Ukrainian soldier fired a MANPADS from the street in Dnipro, intercepting a Russian UAV."
+    → {{"event_id": "ex3", "actor": "Russia", "weapon_type": "Drones", "target": "Ukraine", "objective": "UAV", "objective_type": "Military"}}
 
-    # 4. Named armed group
-    "JNIM/FLA coalition attacked the city of Gourma-Rharous and its military camp in Mali with customized AKM and AK-103 assault rifles."
-    → {{"actor": "JNIM", "weapon_type": "Small Arms", "target": "Mali", "objective": "military camp", "objective_type": "Military"}}
+    4. Actor null (unlisted group), vague target → "Unidentified/Other":
+    EVENT_ID: ex4 — "An unknown group used 107mm Type 63 rockets to strike the city of Quetta in Balochistan, Pakistan."
+    → {{"event_id": "ex4", "actor": null, "weapon_type": "Explosives", "target": "Pakistan", "objective": "urban area", "objective_type": "Unidentified/Other"}}
 
-    # 5. Actor = null — unlisted group
-    "Islamic Resistance FPV drone armed with a PG-7VR tandem-HEAT warhead struck a communication tower at the US Victoria Base in Baghdad."
-    → {{"actor": null, "weapon_type": "Drones", "target": "Iraq", "objective": "communication tower", "objective_type": "Communications"}}
+    5. Generic but explicitly civilian-populated area → "Civilian" (contrast with #4, no proper name needed):
+    EVENT_ID: ex5 — "A Russian Pantsir SAM system accidentally fired 30 mm cannon rounds into a residential neighborhood in Afipsky, Russia."
+    → {{"event_id": "ex5", "actor": "Russia", "weapon_type": "Air Defence", "target": "Russia", "objective": "residential neighborhood", "objective_type": "Civilian"}}
 
-    # 6. Actor = null — unknown attacker, vague target → "Unidentified/Other"
-    "An unknown group used 107mm Type 63 rockets to strike the city of Quetta in Balochistan, Pakistan."
-    → {{"actor": null, "weapon_type": "Explosives", "target": "Pakistan", "objective": "urban area", "objective_type": "Unidentified/Other"}}
+    6. Friendly fire / accident:
+    EVENT_ID: ex6 — "A Ukrainian military pick-up carrying ammunition detonated in Kharkiv, shattering windows in surrounding buildings."
+    → {{"event_id": "ex6", "actor": "Ukraine", "weapon_type": "Explosives", "target": "Ukraine", "objective": "ammunition vehicle", "objective_type": "Military"}}
 
-    # 7. Specific named civilian object → "Civilian"
-    "An unknown group used 107mm Type 63 rockets to destroy a passenger minibus on Airport Road in Quetta, Pakistan."
-    → {{"actor": null, "weapon_type": "Explosives", "target": "Pakistan", "objective": "passenger minibus", "objective_type": "Civilian"}}
-
-    # 8. Generic but explicitly civilian-populated area → "Civilian" (no proper name needed)
-    "A Russian Pantsir SAM system accidentally fired 30 mm cannon rounds into a residential neighborhood in Afipsky, Russia."
-    → {{"actor": "Russia", "weapon_type": "Air Defence", "target": "Russia", "objective": "residential neighborhood", "objective_type": "Civilian"}}
-
-    # 9. Overflight / in-progress, no confirmed impact → all null
-    "A Ukrainian Flamingo cruise missile was spotted flying over Russia's Chuvash Republic, over 500 miles from the border."
-    → {{"actor": null, "weapon_type": null, "target": null, "objective": null, "objective_type": null}}
-
-    # 10. Friendly fire / accident
-    "A Ukrainian military pick-up carrying ammunition detonated in Kharkiv, shattering windows in surrounding buildings."
-    → {{"actor": "Ukraine", "weapon_type": "Explosives", "target": "Ukraine", "objective": "ammunition vehicle", "objective_type": "Military"}}
-
-    # 11. Non-kinetic event → all null
-    "Air raid sirens sounded across Kiryat Shmona, Israel, over a suspected drone attack from Lebanon."
-    → {{"actor": null, "weapon_type": null, "target": null, "objective": null, "objective_type": null}}
+    7. Overflight / no confirmed impact → all null:
+    EVENT_ID: ex7 — "A Ukrainian Flamingo cruise missile was spotted flying over Russia's Chuvash Republic, over 500 miles from the border."
+    → {{"event_id": "ex7", "actor": null, "weapon_type": null, "target": null, "objective": null, "objective_type": null}}
     """
 
 def fetch_aggressor_data(cur):
@@ -292,27 +272,52 @@ def sanitize_objective_type(value: str | None) -> str | None:
     return "Unidentified/Other"
 
 
-def extract_quadruplet(summary: str, countries: list[str]) -> dict | None:
-    """Sends a summary to the LLM and returns the extracted (actor, weapon_type, target, objective) quadruplet."""
+# Nombre de résumés envoyés par appel LLM. Le system prompt (règles + listes pays/
+# groupes/armes) coûte le même prix qu'il traite 1 ou N événements : plus ce chiffre
+# est haut, moins on paie de fois ce prompt. 10 reste prudent ici car la tâche a 5
+# champs et des règles fines par événement (contrairement à une simple catégorisation).
+BATCH_SIZE = 7
+
+
+def chunked(items: list, size: int):
+    for i in range(0, len(items), size):
+        yield items[i:i + size]
+
+
+def extract_quadruplets_batch(batch: list[tuple[str, str]], countries: list[str]) -> dict[str, dict]:
+    """batch: list of (event_id, summary). Returns {event_id: quadruplet_dict}."""
+    user_content = "\n\n".join(
+        f"EVENT_ID: {event_id}\nTEXT: {summary}"
+        for event_id, summary in batch
+    )
+
     try:
-        
         response = client.chat.completions.create(
-            model="qwen3.6-35b-a3b",
+            model="gemma-4-26B-A4B",
             messages=[
                 {"role": "system", "content": build_system_prompt(countries)},
-                {"role": "user", "content": summary},
+                {"role": "user", "content": user_content},
             ],
             response_format={"type": "json_object"},
             temperature=0.0,
-            max_tokens=4000,
+            max_tokens=700 * len(batch) + 200,
         )
-
+        track(response)
         raw = response.choices[0].message.content.strip()
-        return json.loads(raw)
-
+        parsed = json.loads(raw)
+        results = parsed.get("results", [])
     except Exception as e:
-        print(f"LLM extraction error: {e}")
-        return None
+        print(f"LLM extraction error (batch of {len(batch)}): {e}")
+        return {}
+
+    output: dict[str, dict] = {}
+    for entry in results:
+        event_id = entry.get("event_id")
+        if event_id is None:
+            continue
+        output[str(event_id)] = entry
+
+    return output
 
 
 def generate_aggressor():
@@ -323,57 +328,62 @@ def generate_aggressor():
         tweets, country_dict = fetch_aggressor_data(cur)
         countries = list(country_dict.keys())
 
-        for row in tweets:
-            tweet_id, date, summary, loc_name, lon_tweet, lat_tweet = row
-            result = extract_quadruplet(summary, countries)
-            
-            if not result:
-                continue
+        for batch in chunked(tweets, BATCH_SIZE):
+            # event_id = tweet_id en str : garantit une correspondance fiable même
+            # si tweet_id est un grand entier (bigint Twitter).
+            llm_batch = [(str(row[0]), row[2]) for row in batch]
+            results = extract_quadruplets_batch(llm_batch, countries)
 
-            aggressor      = keep_first_entity(result.get("actor"))
-            weapon_type    = sanitize_weapon_type(result.get("weapon_type"))
-            target         = keep_first_entity(result.get("target"))
-            objective      = result.get("objective")
-            objective_type = sanitize_objective_type(result.get("objective_type"))
+            for row in batch:
+                tweet_id, date, summary, loc_name, lon_tweet, lat_tweet = row
+                result = results.get(str(tweet_id))
 
-            if weapon_type is None and target is None:
-                continue
+                if not result:
+                    continue
 
-            aggressor_coords = country_dict.get(aggressor)
-            target_coords    = country_dict.get(target)
+                aggressor      = keep_first_entity(result.get("actor"))
+                weapon_type    = sanitize_weapon_type(result.get("weapon_type"))
+                target         = keep_first_entity(result.get("target"))
+                objective      = result.get("objective")
+                objective_type = sanitize_objective_type(result.get("objective_type"))
 
-            aggressor_geom = None
-            if aggressor_coords:
-                lon, lat = aggressor_coords[1]
-                aggressor_geom = f"SRID=4326;POINT({lon} {lat})"
+                if weapon_type is None and target is None:
+                    continue
 
-            target_geom = f"SRID=4326;POINT({lon_tweet} {lat_tweet})"
+                aggressor_coords = country_dict.get(aggressor)
 
-            print(f"{aggressor} --[{weapon_type}]--> {target} | {objective} ({objective_type})")
+                aggressor_geom = None
+                if aggressor_coords:
+                    lon, lat = aggressor_coords[1]
+                    aggressor_geom = f"SRID=4326;POINT({lon} {lat})"
 
-            try:
-                cur.execute(
-                    """
-                    INSERT INTO MILITARY_ACTIONS
-                        (TWEET_ID, AGGRESSOR, TARGET, WEAPON_TYPE, OBJECTIVE, OBJECTIVE_TYPE, AGGRESSOR_GEOM, TARGET_GEOM)
-                    VALUES
-                        (%s, %s, %s, %s, %s, %s, ST_GeomFromEWKT(%s), ST_GeomFromEWKT(%s))
-                    ON CONFLICT (TWEET_ID) DO UPDATE SET
-                        AGGRESSOR      = EXCLUDED.AGGRESSOR,
-                        TARGET         = EXCLUDED.TARGET,
-                        WEAPON_TYPE    = EXCLUDED.WEAPON_TYPE,
-                        OBJECTIVE      = EXCLUDED.OBJECTIVE,
-                        OBJECTIVE_TYPE = EXCLUDED.OBJECTIVE_TYPE,
-                        AGGRESSOR_GEOM = EXCLUDED.AGGRESSOR_GEOM,
-                        TARGET_GEOM    = EXCLUDED.TARGET_GEOM
-                    """,
-                    (tweet_id, aggressor, target, weapon_type, objective, objective_type,
-                     aggressor_geom, target_geom),
-                )
-                conn.commit()
-            except Exception as e:
-                conn.rollback()
-                print(f"  Insert error for tweet {tweet_id}: {e}")
+                target_geom = f"SRID=4326;POINT({lon_tweet} {lat_tweet})"
+
+                print(f"{aggressor} --[{weapon_type}]--> {target} | {objective} ({objective_type})")
+
+                try:
+                    cur.execute(
+                        """
+                        INSERT INTO MILITARY_ACTIONS
+                            (TWEET_ID, AGGRESSOR, TARGET, WEAPON_TYPE, OBJECTIVE, OBJECTIVE_TYPE, AGGRESSOR_GEOM, TARGET_GEOM)
+                        VALUES
+                            (%s, %s, %s, %s, %s, %s, ST_GeomFromEWKT(%s), ST_GeomFromEWKT(%s))
+                        ON CONFLICT (TWEET_ID) DO UPDATE SET
+                            AGGRESSOR      = EXCLUDED.AGGRESSOR,
+                            TARGET         = EXCLUDED.TARGET,
+                            WEAPON_TYPE    = EXCLUDED.WEAPON_TYPE,
+                            OBJECTIVE      = EXCLUDED.OBJECTIVE,
+                            OBJECTIVE_TYPE = EXCLUDED.OBJECTIVE_TYPE,
+                            AGGRESSOR_GEOM = EXCLUDED.AGGRESSOR_GEOM,
+                            TARGET_GEOM    = EXCLUDED.TARGET_GEOM
+                        """,
+                        (tweet_id, aggressor, target, weapon_type, objective, objective_type,
+                         aggressor_geom, target_geom),
+                    )
+                    conn.commit()
+                except Exception as e:
+                    conn.rollback()
+                    print(f"  Insert error for tweet {tweet_id}: {e}")
 
     finally:
         cur.close()
@@ -381,3 +391,4 @@ def generate_aggressor():
 
 if __name__ == "__main__":
     generate_aggressor()
+    print(token_tracker.summary())

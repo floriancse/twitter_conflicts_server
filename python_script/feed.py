@@ -8,7 +8,7 @@ import requests
 import psycopg2
 import time
 from rss_to_json import parse_to_json
-from llm_geocode import extract_events_and_geoloc
+from llm_geocode import extract_events_and_geoloc_batch, chunked, BATCH_SIZE as GEOCODE_BATCH_SIZE
 import os
 from dotenv import load_dotenv
 from flag_db_duplicates import flag_duplicates
@@ -19,7 +19,10 @@ from translate_tweet_text import translate_to_english
 from llm_strait_state import save_strait_state
 from llm_insert_topic import insert_topics
 from llm_daily_summary import summarize_from_db
+from location_correction import apply_correction
 import subprocess
+import token_tracker
+import time
 load_dotenv()
 
 # ==============================================================================
@@ -38,17 +41,18 @@ DB_CONFIG = {
 LLAMA_SERVER_PORT = 8081
 LLAMA_SERVER_CMD = [
     "llama-server",
-    "-hf", "unsloth/Qwen3.6-35B-A3B-MTP-GGUF:UD-IQ3_XXS",
+    "-hf", "unsloth/gemma-4-26B-A4B-it-qat-GGUF:UD-Q4_K_XL",
     "--port", str(LLAMA_SERVER_PORT),
     "-ngl", "999",
-    "--n-cpu-moe", "4",
-    "--ctx-size", "32768",
+    "--n-cpu-moe", "20",
+    "--ctx-size", "16000",
     "-fa", "on",
     "--cache-type-k", "q8_0",
     "--cache-type-v", "q8_0",
     "--reasoning", "off",
+    "--no-mmproj"
 ]
-LLAMA_SERVER_STARTUP_TIMEOUT = 300  # seconds to wait for the model to load
+LLAMA_SERVER_STARTUP_TIMEOUT = 300  
 
 SOURCES = [
     "@GeoConfirmed", "@sentdefender", "@OSINTWarfare",
@@ -174,13 +178,22 @@ cur = conn.cursor()
 cur.execute(SQL_GET_TWEET_IDS)
 tweet_in_db = [i[0] for i in cur.fetchall()]
 
-# Fetch and process each source's RSS feed
+directional_keywords = [
+'Middle East',
+'Eastern', 'Northern', 'Western', 'Southern',
+'North', 'South', 'East', 'West'
+]
+
+# Phase 1 — Fetch and filter candidate tweets from every source's RSS feed.
+# No LLM call happens here: we just decide which items are worth analyzing
+# (not already stored, not a retweet/link-only/update post, GeoConfirmed rule).
+candidates = []
+
 for source in SOURCES:
-    print(source)
 
     try:
-
         osint_json = parse_to_json(f"http://localhost:8080/{source[1:]}/rss", source)
+        time.sleep(5)
         for item in osint_json["tweets"]:
             if item["id"] in tweet_in_db:
                 continue
@@ -195,63 +208,91 @@ for source in SOURCES:
             if tweet_text.startswith(("RT", "x.com", "Update")):
                 continue
 
-            # Ask the LLM to extract events and geolocation data from the tweet text
-            try:
-                llm_to_geocode = extract_events_and_geoloc(tweet_text)
-            except Exception as e:
-                print("LLM error:", e)
-                continue
-
-            if llm_to_geocode is None:
-                continue
-
-            events = llm_to_geocode.get("events", [])
-
-            # No event extracted: store the tweet with minimal info and flag it as a duplicate
-            if not events:
-                cur.execute(SQL_INSERT_TWEET_MINIMAL,
-                    (item["id"], item["date"], item["link"], item["author"], tweet_text, 'true'))
-                conn.commit()
-                continue
-
-            tweet_text = translate_to_english(tweet_text)
-            event = events[0]
-
-            lat = event.get("lat")
-            lon = event.get("lon")
-            strategic_importance = int(event.get("strategic_importance") or 0)
-            typology = event.get("typology")
-            summary_text = event.get("summary_text")
-            nominatim_query = event.get("nominatim_query")
-            location_accuracy = event.get("confidence")
-            location_source = "LLM"
-            is_delayed = event.get("is_delayed")
-
-            # If the LLM's location isn't explicit, refine it via Nominatim
-            if location_accuracy != "explicit":
-                nominatim_search = nominatim_geolocation_closest(nominatim_query, lat, lon)
-                if nominatim_search:
-                    lat, lon = nominatim_search[0], nominatim_search[1]
-                    location_source = "Nominatim"
-
-            geom_wkt = f"POINT({lon} {lat})" if lat and lon else None
-            print(nominatim_query, geom_wkt, summary_text)
-
-            # Store the fully processed tweet with its geolocation and metadata
-            cur.execute(SQL_INSERT_TWEET_FULL, (
-                item["id"], item["date"], item["link"], item["author"], tweet_text,
-                location_accuracy, strategic_importance, typology,
-                summary_text, nominatim_query, geom_wkt, geom_wkt, location_source, is_delayed
-            ))
-            conn.commit()
-
-            # Store any attached images for this tweet
-            for img in item["images"]:
-                cur.execute(SQL_INSERT_IMAGE, (item["id"], img))
-                conn.commit()
+            candidates.append({**item, "tweet_text": tweet_text})
 
     except Exception as error:
         print(error)
+
+print(f"{len(candidates)} tweet(s) candidat(s) à analyser.")
+
+# Phase 2 — Batch the candidates through the geocoding LLM (BATCH_SIZE tweets per
+# call instead of one call per tweet), then run the same per-tweet post-processing
+# as before (translation, Nominatim refinement, DB insertion, images).
+for batch in chunked(candidates, GEOCODE_BATCH_SIZE):
+    llm_batch = [(str(item["id"]), item["tweet_text"]) for item in batch]
+
+    try:
+        results = extract_events_and_geoloc_batch(llm_batch)
+    except Exception as e:
+        print("LLM batch error:", e)
+        results = {}
+
+    for item in batch:
+        result = results.get(str(item["id"]))
+
+        if result is None:
+            # Whole batch failed, or the LLM omitted this tweet from its response.
+            # The tweet was never inserted, so it stays a candidate for the next run.
+            print(f"[WARN] Pas de résultat LLM pour le tweet {item['id']}, retenté au prochain run.")
+            continue
+
+        tweet_text = item["tweet_text"]
+        events = result.get("events", [])
+
+        # No event extracted: store the tweet with minimal info and flag it as a duplicate
+        if not events:
+            cur.execute(SQL_INSERT_TWEET_MINIMAL,
+                (item["id"], item["date"], item["link"], item["author"], tweet_text, 'true'))
+            conn.commit()
+            continue
+
+        tweet_text = translate_to_english(tweet_text)
+        event = events[0]
+
+        lat = event.get("lat")
+        lon = event.get("lon")
+        strategic_importance = int(event.get("strategic_importance") or 0)
+        typology = event.get("typology")
+        summary_text = event.get("summary_text")
+        nominatim_query = event.get("nominatim_query")
+        location_accuracy = event.get("confidence")
+        location_source = "LLM"
+        is_delayed = event.get("is_delayed")
+
+        # If the LLM's location isn't explicit, refine it via Nominatim
+        if location_accuracy and location_accuracy != "explicit":
+            nominatim_search = nominatim_geolocation_closest(nominatim_query, lat, lon)
+            time.sleep(1)
+            
+            if isinstance(nominatim_search, list):
+                lat, lon = nominatim_search[0], nominatim_search[1]
+                location_source = "Nominatim"
+
+            elif isinstance(nominatim_search, str) and nominatim_search.split(" ")[0] in directional_keywords:
+                print("CORRECTION POINT", nominatim_search)
+                correction = apply_correction(nominatim_search)
+                if correction is not None:
+                    lon, lat = correction
+                    location_source = "LLM"
+
+        geom_wkt = f"POINT({lon} {lat})" if lat and lon else None
+
+        print(nominatim_query, geom_wkt, summary_text, location_source)
+
+        # Store the fully processed tweet with its geolocation and metadata
+        cur.execute(SQL_INSERT_TWEET_FULL, (
+            item["id"], item["date"], item["link"], item["author"], tweet_text,
+            location_accuracy, strategic_importance, typology,
+            summary_text, nominatim_query, geom_wkt, geom_wkt, location_source, is_delayed
+        ))
+        conn.commit()
+
+        # Store any attached images for this tweet
+        for img in item["images"]:
+            cur.execute(SQL_INSERT_IMAGE, (item["id"], img))
+            conn.commit()
+
+
 
 # Post-processing: dedupe, snapshot threats, extract aggressors, and summarize
 flag_duplicates()
@@ -287,3 +328,5 @@ try:
             print(f"Aucun serveur llama.cpp trouvé sur le port {LLAMA_SERVER_PORT}")
 except Exception as e:
     print("Impossible de stopper llama-server :", e)
+
+print(token_tracker.summary())

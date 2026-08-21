@@ -12,30 +12,51 @@ def haversine(lat1, lon1, lat2, lon2):
     return 2 * R * atan2(sqrt(a), sqrt(1 - a))
 
 
-def nominatim_geolocation_closest(q, ref_lat: float, ref_long:float, limit=50):
+def nominatim_geolocation_closest(q, ref_lat: float, ref_long: float, limit=50):
     """
     Interroge Nominatim pour tous les résultats correspondant à `q`
     et renvoie le point [lat, lon] le plus proche de (ref_lat, ref_long).
     """
     directional_keywords = [
-    'Middle East',
-    'Eastern', 'Northern', 'Western', 'Southern', 'Central',
-    'North', 'South', 'East', 'West'
+        'Middle East',
+        'Eastern', 'Northern', 'Western', 'Southern', 
+        'North', 'South', 'East', 'West'
     ]
 
-    if not q: 
+    directional_exceptions = [
+        'north sea',
+        'south china sea',
+        'east china sea',
+        'east sea',
+        'southern ocean',
+        'north channel',
+        'western sahara',
+        'northern ireland',
+        'south sudan',
+        'south africa',
+        'south korea',
+        'north korea',
+        'north macedonia',
+        'east timor',
+        'western australia',  
+    ]
+
+    if not q:
         return None
 
-    if any(keyword.lower() in q.lower() for keyword in directional_keywords):
-        return None
+    q_lower = q.lower()
 
-    
+    is_exception = any(exc in q_lower for exc in directional_exceptions)
+
+    if not is_exception and any(keyword.lower() in q_lower for keyword in directional_keywords):
+        return q
+
     url = "https://nominatim.openstreetmap.org/search"
     params = {
         "q": q,
         "format": "geojson",
         "language": "en",
-        "limit": limit, 
+        "limit": limit,
     }
     headers = {'User-Agent': 'osint-observer-geolocation'}
 
@@ -43,20 +64,8 @@ def nominatim_geolocation_closest(q, ref_lat: float, ref_long:float, limit=50):
     features = r.json().get("features", [])
 
     if not features:
-        fallback_search = q.split(",")[0]
-        params = {
-            "q": fallback_search,
-            "format": "geojson",
-            "language": "en",
-            "limit": limit, 
-        }
-        headers = {'User-Agent': 'osint-observer-geolocation'}
+        return None
 
-        r = requests.get(url, headers=headers, params=params)
-        features = r.json().get("features", [])
-        if not features:
-            return None    
-        
     candidates = []
     for feature in features:
         geometry = feature["geometry"]
@@ -70,19 +79,24 @@ def nominatim_geolocation_closest(q, ref_lat: float, ref_long:float, limit=50):
                 continue
             lon = (bbox[0] + bbox[2]) / 2
             lat = (bbox[1] + bbox[3]) / 2
-        
-        dist = haversine(ref_lat, ref_long, lat, lon)
+
+        if ref_lat is not None and ref_long is not None:
+            dist = haversine(ref_lat, ref_long, lat, lon)
+        else:
+            dist = 0
+
         candidates.append((dist, lat, lon, props))
 
     if not candidates:
         return None
 
-    candidates.sort(key=lambda c: c[0])
-    dist, lat, lon, props = candidates[0]
+    if ref_lat is not None and ref_long is not None:
+        candidates.sort(key=lambda c: c[0])
 
+    dist, lat, lon, props = candidates[0]
     return [lat, lon]
 
 
 if __name__ == "__main__":
-    result = nominatim_geolocation_closest("British Indian Ocean Territory, United Kingdom", 72.53, 7.34)
+    result = nominatim_geolocation_closest("Kramatorsk, Ukraine", 62.0, 5.0)
     print(result)

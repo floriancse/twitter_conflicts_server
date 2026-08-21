@@ -5,7 +5,8 @@ import json
 import argparse
 from dotenv import load_dotenv
 from datetime import datetime
-
+from token_tracker import track
+import token_tracker
 
 load_dotenv()
 
@@ -76,10 +77,9 @@ def get_db_connection():
 
 
 def _call_llm(user_content: str) -> dict | None:
-    """Call the LLM and return a parsed JSON dict with 'summary' and 'title'."""
     try:
         response = client.chat.completions.create(
-            model="qwen3.6-35b-a3b",
+            model="gemma-4-26B-A4B",
             messages=[
                 {"role": "system", "content": build_system_prompt()},
                 {"role": "user", "content": user_content},
@@ -87,12 +87,30 @@ def _call_llm(user_content: str) -> dict | None:
             response_format={"type": "json_object"},
             temperature=0,
             top_p=0.8,
-            max_tokens=2000,
+            max_tokens=400,
         )
-        raw = response.choices[0].message.content.strip()
+        track(response)
+        raw = response.choices[0].message.content
+        if raw is None:
+            print("[WARN] Réponse vide du modèle")
+            return None
+        raw = raw.strip()
+
+        # Nettoyage des fences Markdown éventuelles (```json ... ```)
+        if raw.startswith("```"):
+            raw = raw.strip("`")
+            if raw.startswith("json"):
+                raw = raw[4:].strip()
+
+        if not raw:
+            print("[WARN] Réponse vide après nettoyage")
+            return None
         print(raw)
         return json.loads(raw)
 
+    except json.JSONDecodeError:
+        print(f"[WARN] JSON invalide, contenu brut : {raw!r}")
+        return None
     except Exception:
         import traceback
         traceback.print_exc()
@@ -161,7 +179,7 @@ def summarize_from_db():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    for i in range(3):
+    for i in range(1):
         print(f"[DB] Processing day offset: {i}")
         cur.execute(SQL_GET_EVENTS, (i,))
         rows = cur.fetchall()
@@ -185,3 +203,4 @@ def summarize_from_db():
 
 if __name__ == "__main__":
     summarize_from_db()
+    print(token_tracker.summary())

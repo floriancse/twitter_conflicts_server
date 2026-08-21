@@ -387,48 +387,6 @@ FROM
         )
         result["conflict_theaters"] = cur.fetchone()[0]
 
-        # --- conflict_areas.geojson ---
-        cur.execute(
-            """
-        SELECT
-            JSON_BUILD_OBJECT(
-                'type',
-                'FeatureCollection',
-                'features',
-                JSON_AGG(
-                    JSON_BUILD_OBJECT(
-                        'type',
-                        'Feature',
-                        'geometry',
-                        ST_ASGEOJSON (GEOM)::JSON,
-                        'properties',
-                        JSON_BUILD_OBJECT('name', NAME, 'count', TWEET_COUNT)
-                    )
-                )
-            )
-        FROM
-            (
-                SELECT
-                    NAME,
-                    COUNT(NAME) AS TWEET_COUNT,
-                    WR.GEOM
-                FROM
-                    TWEETS T
-                    LEFT JOIN WORLD_REGIONS WR ON ST_INTERSECTS (WR.GEOM, T.GEOM)
-                WHERE
-                    CREATED_AT >= NOW() - INTERVAL '24 hours'
-                    AND T.GEOM IS NOT NULL
-                    AND IS_DUPLICATE = 'false'
-                GROUP BY
-                    NAME,
-                    WR.GEOM
-                HAVING
-                    COUNT(NAME) >= 3
-            ) SUB;
-            """
-        )
-        result["conflict_areas"] = cur.fetchone()[0]
-
         # --- world_areas.geojson ---
         cur.execute(
             """
@@ -527,6 +485,8 @@ FROM
         WHERE
             CONFLICT_TYPOLOGY = 'MIL'
             AND LABEL IS NOT NULL
+            AND is_duplicate = 'false'
+            AND (is_delayed = 'false' OR is_delayed IS NULL)
         GROUP BY
             TOPIC_ID,
             LABEL
@@ -549,7 +509,6 @@ FROM
             """
         )
         result["last_update"] = cur.fetchone()[0]
-
 
         # --- strait_closure ---
         cur.execute(
@@ -603,6 +562,7 @@ FROM
         )
         result["strait_closure"] = cur.fetchall()
 
+        # --- military_lines ---
         cur.execute(
                     """
                     SELECT
@@ -633,6 +593,10 @@ FROM
                         AND t.is_duplicate = 'false'
                         AND t.geom IS NOT NULL
                         AND (t.is_delayed = 'false' OR t.is_delayed IS NULL)
+                        AND NOT (
+                            T.CONFLICT_TYPOLOGY = 'MIL'
+                            AND T.NOMINATIM_QUERY NOT LIKE '%,%'
+                        )
                     """
                 )
 
@@ -640,18 +604,38 @@ FROM
 
         cur.execute(
             """
-           WITH filtered_tweets AS (
-                SELECT
-                    t.tweet_id, t.tweet_url, t.username, t.created_at, t.text,
-                    t.location_accuracy, t.nominatim_query, t.geom,
-                    t.importance_score, t.conflict_typology, t.verified,
-                    t.location_source, t.is_duplicate, t.fk_topic
-                FROM tweets t
-                WHERE t.created_at >= NOW() - INTERVAL '30 days'
-                AND t.is_duplicate = 'false'
-                AND t.geom IS NOT NULL
-                AND (t.is_delayed = 'false' OR t.is_delayed IS NULL)
-            )
+            WITH
+                FILTERED_TWEETS AS (
+                    SELECT
+                        T.TWEET_ID,
+                        T.TWEET_URL,
+                        T.USERNAME,
+                        T.CREATED_AT,
+                        T.TEXT,
+                        T.LOCATION_ACCURACY,
+                        T.NOMINATIM_QUERY,
+                        T.GEOM,
+                        T.IMPORTANCE_SCORE,
+                        T.CONFLICT_TYPOLOGY,
+                        T.VERIFIED,
+                        T.LOCATION_SOURCE,
+                        T.IS_DUPLICATE,
+                        T.FK_TOPIC
+                    FROM
+                        TWEETS T
+                    WHERE
+                        T.CREATED_AT >= NOW() - INTERVAL '30 days'
+                        AND T.IS_DUPLICATE = 'false'
+                        AND T.GEOM IS NOT NULL
+                        AND (
+                            T.IS_DELAYED = 'false'
+                            OR T.IS_DELAYED IS NULL
+                        )
+                        AND NOT (
+                            T.CONFLICT_TYPOLOGY = 'MIL'
+                            AND T.NOMINATIM_QUERY NOT LIKE '%,%'
+                        )
+                )
             SELECT
                 JSON_BUILD_OBJECT(
                     'type', 'FeatureCollection',
@@ -840,12 +824,16 @@ def get_graph_events(
                     LEFT JOIN TOPICS ON T.FK_TOPIC = TOPICS.TOPIC_ID
                 WHERE
                     T.CREATED_AT >= (SELECT PERIOD_START FROM ANCHOR) - INTERVAL '30 days'
-                    AND {where_clause} and             TOPIC_ID IS NOT NULL
-
-            AND (
-                IS_DELAYED IS NULL
-                OR IS_DELAYED = 'false'
-            ) 
+                    AND {where_clause} 
+                    AND TOPIC_ID IS NOT NULL
+                    AND (
+                        IS_DELAYED IS NULL
+                        OR IS_DELAYED = 'false'
+                    ) 
+                    AND NOT (
+                        T.CONFLICT_TYPOLOGY = 'MIL'
+                        AND T.NOMINATIM_QUERY NOT LIKE '%%,%%'
+                    )
             ),
             FULL_SERIES AS (
                 SELECT

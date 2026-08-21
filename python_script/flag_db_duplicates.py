@@ -79,7 +79,7 @@ def flag_duplicates(dry_run=False):
     try:
         cur.execute("""
             SELECT tweet_id,
-                   COALESCE(summary_text, text),
+                   COALESCE(text),
                    created_at,
                    conflict_typology,
                    ST_Y(geom::geometry) AS lat,

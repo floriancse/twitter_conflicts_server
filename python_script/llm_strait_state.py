@@ -3,7 +3,9 @@ import psycopg2
 import json
 import os 
 from dotenv import load_dotenv
-
+from datetime import datetime, timezone, timedelta
+from token_tracker import track
+import token_tracker
 # ==============================================================================
 # CONFIGURATION
 # ==============================================================================
@@ -21,6 +23,9 @@ client = OpenAI(
     base_url="http://localhost:8081/v1",
     api_key="",
 )
+
+# If a strait has never been evaluated yet, look back this far for its first run.
+FIRST_RUN_LOOKBACK_DAYS = 30
 
 STRAITS = [
     {"id": 1,  "name": "Suez Canal",          "aliases": ["Suez Canal", "Suez"]},
@@ -70,6 +75,30 @@ def get_db_connection():
 # ==============================================================================
 # REQUÊTES
 # ==============================================================================
+
+def get_last_snapshot_dates(cur) -> dict:
+    """Récupère la date du dernier snapshot pour chaque détroit déjà connu en base.
+    Retourne {portname: snapshot_date}. Un détroit absent du dict n'a jamais été évalué."""
+    cur.execute("SELECT PORTNAME, SNAPSHOT_DATE FROM CHOKEPOINTS_STATE_HISTORY")
+    return {row[0]: row[1] for row in cur.fetchall()}
+
+
+def has_new_signal(cur, strait: dict, since) -> bool:
+    """Vérifie légèrement (sans ramener le contenu) s'il existe au moins un tweet
+    lié à ce détroit posté après 'since'. Sert de garde avant d'appeler le LLM."""
+    conditions = " OR ".join(["text ILIKE %s"] * len(strait["aliases"]))
+    params = [f"%{a}%" for a in strait["aliases"]]
+    query = f"""
+        SELECT 1
+        FROM tweets
+        WHERE ({conditions})
+        AND created_at > %s
+        AND IS_DUPLICATE = 'false'
+        LIMIT 1
+    """
+    cur.execute(query, params + [since])
+    return cur.fetchone() is not None
+
 
 def get_strait_tweets(cur, strait: dict, days: int = 60) -> list[dict]:
     """Récupère les tweets récents pour un détroit donné via ses aliases"""
@@ -195,12 +224,12 @@ def infer_strait_status(tweets: list[dict], strait: dict) -> dict:
     }}"""
 
     response = client.chat.completions.create(
-        model="qwen3.6-35b-a3b",
+        model="gemma-4-26B-A4B",
         messages=[{"role": "user", "content": prompt}],
         temperature=0,
         response_format={"type": "json_object"}
     )
-
+    track(response)
     raw = response.choices[0].message.content.strip()
 
     if raw.startswith("```"):
@@ -221,10 +250,21 @@ def save_strait_state():
     conn = get_db_connection()
     cur = conn.cursor()
 
+    last_snapshots = get_last_snapshot_dates(cur)
+    default_since = datetime.now(timezone.utc) - timedelta(days=FIRST_RUN_LOOKBACK_DAYS)
+
     results = []
+    skipped = 0
+
     for strait in STRAITS:
+        since = last_snapshots.get(strait["name"], default_since)
+
+        if not has_new_signal(cur, strait, since):
+            print(f"[{strait['id']:02d}] {strait['name']:<25} → SKIP (aucun nouveau signal depuis {since})")
+            skipped += 1
+            continue
+
         tweets = get_strait_tweets(cur, strait, days=30)
-        #print(tweets)
         status = infer_strait_status(tweets, strait)
         results.append({
             "id":          strait["id"],
@@ -233,7 +273,7 @@ def save_strait_state():
             **status,
         })
         print(f"[{strait['id']:02d}] {strait['name']:<25} → {status['status']:<12} ({status['confidence']}) — {status['reason']}")
-        
+
         cur.execute("""
         INSERT INTO CHOKEPOINTS_STATE_HISTORY (
             SNAPSHOT_DATE, PORTNAME, STATUS, CONFIDENCE, REASON)
@@ -247,8 +287,12 @@ def save_strait_state():
         """, (strait['name'], status['status'], status['confidence'], status['reason']))
         conn.commit()
 
+    print(f"\n{len(results)} détroit(s) réévalué(s), {skipped} skippé(s) (aucun signal nouveau).")
+
     cur.close()
     conn.close()
 
+
 if __name__ == "__main__":
     save_strait_state()
+    print(token_tracker.summary())
