@@ -76,11 +76,25 @@ def get_db_connection():
 # REQUÊTES
 # ==============================================================================
 
-def get_last_snapshot_dates(cur) -> dict:
-    """Récupère la date du dernier snapshot pour chaque détroit déjà connu en base.
-    Retourne {portname: snapshot_date}. Un détroit absent du dict n'a jamais été évalué."""
-    cur.execute("SELECT PORTNAME, SNAPSHOT_DATE FROM CHOKEPOINTS_STATE_HISTORY")
-    return {row[0]: row[1] for row in cur.fetchall()}
+def get_last_snapshots(cur) -> dict:
+    """Récupère le dernier snapshot (date + statut) pour chaque détroit déjà connu en base.
+    Retourne {portname: {"snapshot_date":..., "status":..., "confidence":..., "reason":...}}.
+    Un détroit absent du dict n'a jamais été évalué."""
+    cur.execute("""
+        SELECT DISTINCT ON (PORTNAME)
+            PORTNAME, SNAPSHOT_DATE, STATUS, CONFIDENCE, REASON
+        FROM CHOKEPOINTS_STATE_HISTORY
+        ORDER BY PORTNAME, SNAPSHOT_DATE DESC
+    """)
+    return {
+        row[0]: {
+            "snapshot_date": row[1],
+            "status":        row[2],
+            "confidence":    row[3],
+            "reason":        row[4],
+        }
+        for row in cur.fetchall()
+    }
 
 
 def has_new_signal(cur, strait: dict, since) -> bool:
@@ -250,18 +264,40 @@ def save_strait_state():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    last_snapshots = get_last_snapshot_dates(cur)
+    last_snapshots = get_last_snapshots(cur)
     default_since = datetime.now(timezone.utc) - timedelta(days=FIRST_RUN_LOOKBACK_DAYS)
 
     results = []
     skipped = 0
+    carried_over = 0
 
     for strait in STRAITS:
-        since = last_snapshots.get(strait["name"], default_since)
+        prev = last_snapshots.get(strait["name"])
+        since = prev["snapshot_date"] if prev else default_since
 
         if not has_new_signal(cur, strait, since):
-            print(f"[{strait['id']:02d}] {strait['name']:<25} → SKIP (aucun nouveau signal depuis {since})")
-            skipped += 1
+            if prev is None:
+                # Jamais évalué et aucun signal depuis le lookback initial : rien à recopier.
+                print(f"[{strait['id']:02d}] {strait['name']:<25} → SKIP (aucun historique, aucun signal depuis {since})")
+                skipped += 1
+                continue
+
+            # Aucun nouveau signal : on recopie le dernier statut connu avec la date du jour.
+            cur.execute("""
+            INSERT INTO CHOKEPOINTS_STATE_HISTORY (
+                SNAPSHOT_DATE, PORTNAME, STATUS, CONFIDENCE, REASON)
+            VALUES (NOW(), %s, %s, %s, %s)
+            ON CONFLICT (DATE(SNAPSHOT_DATE), PORTNAME)
+            DO UPDATE SET
+                SNAPSHOT_DATE = NOW(),
+                STATUS        = EXCLUDED.STATUS,
+                CONFIDENCE    = EXCLUDED.CONFIDENCE,
+                REASON        = EXCLUDED.REASON
+            """, (strait["name"], prev["status"], prev["confidence"], prev["reason"]))
+            conn.commit()
+
+            print(f"[{strait['id']:02d}] {strait['name']:<25} → {prev['status']:<12} ({prev['confidence']}) — inchangé (aucun nouveau signal)")
+            carried_over += 1
             continue
 
         tweets = get_strait_tweets(cur, strait, days=30)
@@ -287,7 +323,7 @@ def save_strait_state():
         """, (strait['name'], status['status'], status['confidence'], status['reason']))
         conn.commit()
 
-    print(f"\n{len(results)} détroit(s) réévalué(s), {skipped} skippé(s) (aucun signal nouveau).")
+    print(f"\n{len(results)} détroit(s) réévalué(s), {carried_over} recopié(s) (aucun signal nouveau), {skipped} skippé(s) (aucun historique).")
 
     cur.close()
     conn.close()

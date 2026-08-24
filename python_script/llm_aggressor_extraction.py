@@ -102,7 +102,7 @@ ARMED_GROUPS = [
     'JNIM', 'ISWAP', 'Boko Haram', 'ADF', 'Al-Shabaab',
     'Hezbollah', 'Hamas', 'Wagner', 'Africa Corps',
     'Taliban', 'ISIS', 'Al-Qaeda', 'Houthis', 'PKK',
-    'TTP', 'Lashkar-e-Taiba', 'HTS',
+    'Lashkar-e-Taiba', 'HTS',
 ]
 
 def build_system_prompt(countries: list[str]) -> str:
@@ -132,7 +132,7 @@ def build_system_prompt(countries: list[str]) -> str:
     state military → exact country name from the list; named armed group → exact name from the
     group list, never null when explicitly named; unknown/unnamed attacker, passive voice
     ("was struck"), unnamed proxy/militia → null.
-    Aliases: "USF" (Unmanned Systems Forces, Ukraine) → Ukraine; "IRGC" → Iran; Wagner/Africa Corps → Russia.
+    Aliases: "USF" (Unmanned Systems Forces, Ukraine) → Ukraine; "IRGC" → Iran; Wagner/Africa Corps → Russia. Talibans (TTP, Balochistan Liberation Front) → Afghanistan.
 
     RULE 3 — TARGET (whose territory absorbs the impact): soil rule — target = country whose SOIL
     is hit regardless of asset ownership (US base hit in Iraq → target "Iraq"). Occupied territory
@@ -145,6 +145,17 @@ def build_system_prompt(countries: list[str]) -> str:
     LAUNCHED it, target = where it FELL — the intercepting/defending force is never the actor
     (e.g. "Ukraine shot down a Russian Shahed over Odesa" → actor "Russia", target "Ukraine").
     Friendly fire (weapon malfunctions, hits own side) → actor = target = that country.
+
+    RULE 4bis — ACTOR ≠ TARGET, UNLESS GENUINE FRIENDLY FIRE: actor and target must NOT be the
+    same entity except in a confirmed friendly-fire/accident case (own weapon malfunctions, own
+    munitions/vehicle detonates, own forces mistakenly hit — as in example 6). A state military
+    conducting a deliberate strike against a NON-STATE ARMED GROUP on its own soil is NOT friendly
+    fire, even though the impact occurs domestically: target = the named armed group from the
+    group list if identifiable from context (named group, or clearly implied by region/known
+    affiliation), otherwise null (do not fall back to the striking state's own name).
+    Example: "Nigeria's air platforms killed suspected militants in Borno State, targeting groups
+    near Aduwa and Buratai" → actor "Nigeria", target = the group if identifiable (e.g. "Boko
+    Haram"/"ISWAP" per context) or null if not clearly named/implied — never "Nigeria".
 
     RULE 5 — WEAPON_TYPE, closest single match from: {weapon_list}.
     Drones: FPV/loitering munitions (Shahed, Geran, Lancet), USVs, UAVs. Missiles: cruise/ballistic/
@@ -177,9 +188,10 @@ def build_system_prompt(countries: list[str]) -> str:
     Pure rumor with no detail → all null.
 
     VALID VALUES — actor: country from list OR armed group from list, or null. target: country
-    from list, or null. weapon_type / objective_type: exactly one value from their list, or null.
+    from list OR armed group from list (only for a domestic counter-insurgency strike per RULE
+    4bis), or null. weapon_type / objective_type: exactly one value from their list, or null.
     Countries: {country_list}
-    Armed groups (actor only): {group_list}
+    Armed groups (actor or target per RULE 4bis): {group_list}
 
     EXAMPLES (each shown as a single labeled event; apply the same logic per EVENT_ID in your batch)
 
@@ -206,6 +218,10 @@ def build_system_prompt(countries: list[str]) -> str:
     6. Friendly fire / accident:
     EVENT_ID: ex6 — "A Ukrainian military pick-up carrying ammunition detonated in Kharkiv, shattering windows in surrounding buildings."
     → {{"event_id": "ex6", "actor": "Ukraine", "weapon_type": "Explosives", "target": "Ukraine", "objective": "ammunition vehicle", "objective_type": "Military"}}
+
+    6bis. Domestic counter-insurgency strike — NOT friendly fire, target = the armed group, not the striking state:
+    EVENT_ID: ex6bis — "Nigeria's Operation Hadin Kai air platforms killed about 38 suspected militants in precision strikes on militant concentrations in Borno State, targeting Boko Haram groups tracked near Aduwa and Buratai."
+    → {{"event_id": "ex6bis", "actor": "Nigeria", "weapon_type": "Military Aviation", "target": "Boko Haram", "objective": "militant concentrations", "objective_type": "Military"}}
 
     7. Overflight / no confirmed impact → all null:
     EVENT_ID: ex7 — "A Ukrainian Flamingo cruise missile was spotted flying over Russia's Chuvash Republic, over 500 miles from the border."
@@ -276,7 +292,7 @@ def sanitize_objective_type(value: str | None) -> str | None:
 # groupes/armes) coûte le même prix qu'il traite 1 ou N événements : plus ce chiffre
 # est haut, moins on paie de fois ce prompt. 10 reste prudent ici car la tâche a 5
 # champs et des règles fines par événement (contrairement à une simple catégorisation).
-BATCH_SIZE = 7
+BATCH_SIZE = 5
 
 
 def chunked(items: list, size: int):

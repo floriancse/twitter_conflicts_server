@@ -5,13 +5,6 @@ REST API FastAPI for accessing geolocated OSINT data
 This API exposes OSINT tweet data stored in PostgreSQL/PostGIS
 through several endpoints enabling map visualization and analysis.
 
-Main endpoints:
-- /tweets.geojson      : Geolocated tweets (GeoJSON format)
-- /usernames           : List of active authors
-- /important_tweets    : Strategic events (importance_score >= 4)
-- /random_tweets       : Sample of non-geolocated tweets
-- /disputed_areas.geojson : Conflict zones (polygons)
-
 Configuration:
 - Database: PostgreSQL with PostGIS exthreat
 - CORS: Enabled for local development
@@ -155,94 +148,94 @@ def get_bootstrap():
         # --- chokepoints.geojson ---
         cur.execute(
             """
-SELECT
-	JSON_BUILD_OBJECT(
-		'type',
-		'FeatureCollection',
-		'features',
-		JSON_AGG(
-			JSON_BUILD_OBJECT(
-				'type',
-				'Feature',
-				'geometry',
-				ST_ASGEOJSON (GEOM)::JSON,
-				'properties',
-				JSON_BUILD_OBJECT(
-					'portname',
-					PORTNAME,
-					'status',
-					STATUS,
-					'confidence',
-					CONFIDENCE,
-					'reason',
-					REASON,
-					'STATE_DURATION',
-					STATE_DURATION
-				)
-			)
-		)
-	)
-FROM
-	(
-		SELECT
-			CP.PORTNAME,
-			CS.STATUS,
-			CS.CONFIDENCE,
-			CS.REASON,
-			CP.GEOM,
-			CASE
-				WHEN CS.STATUS IN ('CLOSED', 'RESTRICTED') THEN CASE
-					WHEN MAX(CS2.SNAPSHOT_DATE::DATE) - COALESCE(
-						MAX(CS2.SNAPSHOT_DATE::DATE) FILTER (
-							WHERE
-								CS2.STATUS = 'OPENED'
-						),
-						MIN(CS2.SNAPSHOT_DATE::DATE)
-					) = 0 THEN 1
-					ELSE MAX(CS2.SNAPSHOT_DATE::DATE) - COALESCE(
-						MAX(CS2.SNAPSHOT_DATE::DATE) FILTER (
-							WHERE
-								CS2.STATUS = 'OPENED'
-						),
-						MIN(CS2.SNAPSHOT_DATE::DATE)
-					)
-				END
-				WHEN CS.STATUS = 'OPENED' THEN MAX(CS2.SNAPSHOT_DATE::DATE) - COALESCE(
-					MAX(CS2.SNAPSHOT_DATE::DATE) FILTER (
-						WHERE
-							CS2.STATUS IN ('CLOSED', 'RESTRICTED')
-					),
-					MIN(CS2.SNAPSHOT_DATE::DATE)
-				)
-			END AS STATE_DURATION
-		FROM
-			CHOKEPOINTS_STATE_HISTORY CS
-			LEFT JOIN CHOKEPOINTS CP ON CP.PORTNAME = CS.PORTNAME
-			LEFT JOIN CHOKEPOINTS_STATE_HISTORY CS2 ON CS2.PORTNAME = CS.PORTNAME
-		WHERE
-			CS.SNAPSHOT_DATE::DATE = (SELECT MAX(SNAPSHOT_DATE::DATE) FROM CHOKEPOINTS_STATE_HISTORY)
-			AND (
-				CS.STATUS IN ('CLOSED', 'RESTRICTED')
-				OR (
-					CS.STATUS = 'OPENED'
-					AND (
-						SELECT
-							MAX(CS3.SNAPSHOT_DATE::DATE)
-						FROM
-							CHOKEPOINTS_STATE_HISTORY CS3
-						WHERE
-							CS3.PORTNAME = CS.PORTNAME
-							AND CS3.STATUS IN ('CLOSED', 'RESTRICTED')
-					) >= CURRENT_DATE - 8
-				)
-			)
-		GROUP BY
-			CP.PORTNAME,
-			CS.STATUS,
-			CS.CONFIDENCE,
-			CS.REASON,
-			CP.GEOM
-	)
+            SELECT
+                JSON_BUILD_OBJECT(
+                    'type',
+                    'FeatureCollection',
+                    'features',
+                    JSON_AGG(
+                        JSON_BUILD_OBJECT(
+                            'type',
+                            'Feature',
+                            'geometry',
+                            ST_ASGEOJSON (GEOM)::JSON,
+                            'properties',
+                            JSON_BUILD_OBJECT(
+                                'portname',
+                                PORTNAME,
+                                'status',
+                                STATUS,
+                                'confidence',
+                                CONFIDENCE,
+                                'reason',
+                                REASON,
+                                'STATE_DURATION',
+                                STATE_DURATION
+                            )
+                        )
+                    )
+                )
+            FROM
+                (
+                    SELECT
+                        CP.PORTNAME,
+                        CS.STATUS,
+                        CS.CONFIDENCE,
+                        CS.REASON,
+                        CP.GEOM,
+                        CASE
+                            WHEN CS.STATUS IN ('CLOSED', 'RESTRICTED') THEN CASE
+                                WHEN MAX(CS2.SNAPSHOT_DATE::DATE) - COALESCE(
+                                    MAX(CS2.SNAPSHOT_DATE::DATE) FILTER (
+                                        WHERE
+                                            CS2.STATUS = 'OPENED'
+                                    ),
+                                    MIN(CS2.SNAPSHOT_DATE::DATE)
+                                ) = 0 THEN 1
+                                ELSE MAX(CS2.SNAPSHOT_DATE::DATE) - COALESCE(
+                                    MAX(CS2.SNAPSHOT_DATE::DATE) FILTER (
+                                        WHERE
+                                            CS2.STATUS = 'OPENED'
+                                    ),
+                                    MIN(CS2.SNAPSHOT_DATE::DATE)
+                                )
+                            END
+                            WHEN CS.STATUS = 'OPENED' THEN MAX(CS2.SNAPSHOT_DATE::DATE) - COALESCE(
+                                MAX(CS2.SNAPSHOT_DATE::DATE) FILTER (
+                                    WHERE
+                                        CS2.STATUS IN ('CLOSED', 'RESTRICTED')
+                                ),
+                                MIN(CS2.SNAPSHOT_DATE::DATE)
+                            )
+                        END AS STATE_DURATION
+                    FROM
+                        CHOKEPOINTS_STATE_HISTORY CS
+                        LEFT JOIN CHOKEPOINTS CP ON CP.PORTNAME = CS.PORTNAME
+                        LEFT JOIN CHOKEPOINTS_STATE_HISTORY CS2 ON CS2.PORTNAME = CS.PORTNAME
+                    WHERE
+                        CS.SNAPSHOT_DATE::DATE = (SELECT MAX(SNAPSHOT_DATE::DATE) FROM CHOKEPOINTS_STATE_HISTORY)
+                        AND (
+                            CS.STATUS IN ('CLOSED', 'RESTRICTED')
+                            OR (
+                                CS.STATUS = 'OPENED'
+                                AND (
+                                    SELECT
+                                        MAX(CS3.SNAPSHOT_DATE::DATE)
+                                    FROM
+                                        CHOKEPOINTS_STATE_HISTORY CS3
+                                    WHERE
+                                        CS3.PORTNAME = CS.PORTNAME
+                                        AND CS3.STATUS IN ('CLOSED', 'RESTRICTED')
+                                ) >= CURRENT_DATE - 8
+                            )
+                        )
+                    GROUP BY
+                        CP.PORTNAME,
+                        CS.STATUS,
+                        CS.CONFIDENCE,
+                        CS.REASON,
+                        CP.GEOM
+                )
             """
         )
         result["chokepoints"] = cur.fetchone()[0]

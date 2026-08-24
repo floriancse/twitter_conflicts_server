@@ -35,7 +35,7 @@ nominatim_query MUST be "City, Country" or "Region, Country" ONLY — never a fa
    Negative example (do NOT do this): "North Arabian Sea" → nominatim_query = "North Arabian Sea". WRONG.
    Correct: "North Arabian Sea" → nominatim_query = "Arabian Sea". The direction can still inform lat/lon placement (shift the point toward the northern part of the sea) but must never appear in the nominatim_query string itself.
 Example: "Ukraine destroyed a depot at the Tochmash plant near Donetsk airport" → nominatim_query = "Donetsk, Ukraine" (facility name dropped, confidence = "high").
-If truly no location can be inferred (e.g. pure opinion, no actor/target location) → nominatim_query = null, lat/lon = null, confidence = "low".
+If truly no location can be inferred (e.g. pure opinion, no actor/target location) → nominatim_query = null, lat/lon = null, confidence = "low". Note : attribute Crimea and its cities to Ukraine (e.g. Sevastopol, Ukraine).
  
 DIRECTIONAL MODIFIERS
 This section applies ONLY to countries/regions (rule 3), NEVER to seas/straits (rule 4) — for seas/straits, always strip the direction per rule 4 above, no exceptions.

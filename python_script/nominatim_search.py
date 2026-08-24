@@ -39,6 +39,9 @@ def nominatim_geolocation_closest(q, ref_lat: float, ref_long: float, limit=50):
         'north macedonia',
         'east timor',
         'western australia',  
+        'North Waziristan, Pakistan',
+        'North Kordofan, Sudan',
+        'North Kivu, Democratic Republic of the Congo'
     ]
 
     if not q:
@@ -98,5 +101,5 @@ def nominatim_geolocation_closest(q, ref_lat: float, ref_long: float, limit=50):
 
 
 if __name__ == "__main__":
-    result = nominatim_geolocation_closest("Kramatorsk, Ukraine", 62.0, 5.0)
+    result = nominatim_geolocation_closest("North Korea", 62.0, 5.0)
     print(result)
