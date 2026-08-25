@@ -760,6 +760,24 @@ def get_bootstrap():
             })
         result["topic_summaries"] = topic_summaries
 
+
+         # --- keywords ---
+        cur.execute(
+            """
+            SELECT
+                KW1,
+                KW2,
+                KW3,
+                KW4,
+                KW5
+            FROM
+                KW_TENDANCIES
+            WHERE
+                CREATED_AT = CURRENT_DATE
+            """
+        )
+        result["keywords"] = cur.fetchone()
+
         cur.close()
 
     return result
@@ -817,46 +835,32 @@ def get_graph_events(
                     LEFT JOIN TOPICS ON T.FK_TOPIC = TOPICS.TOPIC_ID
                 WHERE
                     T.CREATED_AT >= (SELECT PERIOD_START FROM ANCHOR) - INTERVAL '30 days'
-                    AND {where_clause} 
+                    AND {where_clause}
                     AND TOPIC_ID IS NOT NULL
                     AND (
                         IS_DELAYED IS NULL
                         OR IS_DELAYED = 'false'
-                    ) 
+                    )
                     AND NOT (
                         T.CONFLICT_TYPOLOGY = 'MIL'
                         AND T.NOMINATIM_QUERY NOT LIKE '%%,%%'
                     )
-            ),
-            FULL_SERIES AS (
-                SELECT
-                    D.DAY AS DATE,
-                    COUNT(FT.CREATED_AT) AS EVENTS
-                FROM
-                    GENERATE_SERIES(
-                        (SELECT PERIOD_START FROM ANCHOR) - INTERVAL '30 days',
-                        (SELECT PERIOD_START FROM ANCHOR) + INTERVAL '12 hours',
-                        INTERVAL '12 hours'
-                    ) AS D (DAY)
-                    LEFT JOIN FILTERED_TWEETS FT ON FT.CREATED_AT >= D.DAY
-                    AND FT.CREATED_AT < D.DAY + INTERVAL '12 hours'
-                GROUP BY
-                    D.DAY
-            ),
-            LAST_NON_EMPTY AS (
-                SELECT MAX(DATE) AS LAST_DAY FROM FULL_SERIES WHERE EVENTS > 0
             )
             SELECT
-                FS.DATE,
-                FS.EVENTS
+                D.DAY AS DATE,
+                COUNT(FT.CREATED_AT) AS EVENTS
             FROM
-                FULL_SERIES FS
-                CROSS JOIN LAST_NON_EMPTY LN
-            WHERE
-                LN.LAST_DAY IS NOT NULL
-                AND FS.DATE <= LN.LAST_DAY
+                GENERATE_SERIES(
+                    (SELECT PERIOD_START FROM ANCHOR) - INTERVAL '30 days',
+                    (SELECT PERIOD_START FROM ANCHOR) + INTERVAL '12 hours',
+                    INTERVAL '12 hours'
+                ) AS D (DAY)
+                LEFT JOIN FILTERED_TWEETS FT ON FT.CREATED_AT >= D.DAY
+                AND FT.CREATED_AT < D.DAY + INTERVAL '12 hours'
+            GROUP BY
+                D.DAY
             ORDER BY
-                FS.DATE ASC
+                D.DAY ASC
             """, params
         )
         graph_events = cur.fetchall()

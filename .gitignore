@@ -3,4 +3,5 @@ venv/
 *.pyc
 .env
 python_script/*.sql
+python_script/*.geojson
 python_script/nitter/

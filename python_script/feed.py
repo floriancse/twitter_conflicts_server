@@ -19,6 +19,7 @@ from translate_tweet_text import translate_to_english
 from llm_strait_state import save_strait_state
 from llm_insert_topic import insert_topics
 from llm_daily_summary import summarize_from_db
+from llm_generate_trending_keywords import build_keywords
 from location_correction import apply_correction
 import subprocess
 import token_tracker
@@ -265,7 +266,7 @@ for batch in chunked(candidates, GEOCODE_BATCH_SIZE):
             time.sleep(1)
             
             if isinstance(nominatim_search, list):
-                lat, lon = nominatim_search[0], nominatim_search[1]
+                lat, lon = nominatim_search
                 location_source = "Nominatim"
 
             elif isinstance(nominatim_search, str) and nominatim_search.split(" ")[0] in directional_keywords:
@@ -294,13 +295,14 @@ for batch in chunked(candidates, GEOCODE_BATCH_SIZE):
 
 
 
-# Post-processing: dedupe, snapshot threats, extract aggressors, and summarize
+# Post-processing: dedupe, snapshot threats, extract aggressors, summarize, keywords
 flag_duplicates()
 save_threat_snapshot()
 generate_aggressor()
 save_strait_state()
 insert_topics()
 summarize_from_db()
+build_keywords()
 
 cur.execute(SQL_INSERT_DAILY_CONFLICTS)
 conn.commit()

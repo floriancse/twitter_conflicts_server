@@ -218,6 +218,6 @@ def extract_events_and_geoloc_batch(batch: list[tuple[str, str]]) -> dict[str, d
 
 if __name__ == "__main__":
     print(extract_events_and_geoloc("""
-BREAKING: Israeli Air and Space Force F-15 fighter jets, most likely F-15A/C Baz aircraft equipped with tactical reconnaissance pods, have been observed heading toward eastern RDCongo.
+US Southern Command announces that US Armed Forces conducted an airstrike against vessel operating under a Cartel in the Eastern Pacific The strike killed 2 narco-terrorists.
 """))
     print(token_tracker.summary())
