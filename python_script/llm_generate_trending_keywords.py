@@ -35,6 +35,21 @@ client = OpenAI(
     api_key="",
 )
 
+SQL_GET_EVENTS = """
+SELECT
+    SUMMARY_TEXT,
+    CREATED_AT::DATE AS DAY
+FROM TWEETS T
+WHERE
+    T.CREATED_AT >= NOW() - INTERVAL '{days} days'
+    AND T.IS_DUPLICATE = 'false'
+    AND T.GEOM IS NOT NULL
+    AND (T.IS_DELAYED = 'false' OR T.IS_DELAYED IS NULL)
+    AND NOT (T.CONFLICT_TYPOLOGY = 'MIL' AND T.NOMINATIM_QUERY NOT LIKE '%,%')
+    AND IMPORTANCE_SCORE >= 2
+    AND FK_TOPIC IN (2, 5, 6, 1)
+"""
+
 SQL_INSERT_KEYWORDS = """
 INSERT INTO
 	KW_TENDANCIES (CREATED_AT, KW1, KW2, KW3, KW4, KW5)
@@ -143,24 +158,11 @@ def _call_llm(user_content: str) -> dict | None:
 # ------------------------------------------------------------------
 # DB
 # ------------------------------------------------------------------
-def build_keywords(conn, days: int) -> dict:
+def build_keywords(days: int = 3) -> dict:
     """Retourne {date: [TEXT, ...]} pour les `days` derniers jours."""
-    query = f"""
-        SELECT
-            SUMMARY_TEXT,
-            CREATED_AT::DATE AS DAY
-        FROM TWEETS T
-        WHERE
-            T.CREATED_AT >= NOW() - INTERVAL '{days} days'
-            AND T.IS_DUPLICATE = 'false'
-            AND T.GEOM IS NOT NULL
-            AND (T.IS_DELAYED = 'false' OR T.IS_DELAYED IS NULL)
-            AND NOT (T.CONFLICT_TYPOLOGY = 'MIL' AND T.NOMINATIM_QUERY NOT LIKE '%,%')
-            AND IMPORTANCE_SCORE >= 2
-            AND FK_TOPIC IN (2, 5, 6, 1)
-    """
+    conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute(query)
+    cur.execute(SQL_GET_EVENTS.format(days=days))
     rows = cur.fetchall()
     results = defaultdict(list)
     result_str = ""
@@ -187,4 +189,4 @@ def build_keywords(conn, days: int) -> dict:
 
 
 if __name__ == "__main__":
-    result = build_keywords(get_db_connection(), days=3)
+    result = build_keywords()

@@ -773,7 +773,12 @@ def get_bootstrap():
             FROM
                 KW_TENDANCIES
             WHERE
-                CREATED_AT = CURRENT_DATE
+                CREATED_AT IN (
+                    SELECT
+                        MAX(CREATED_AT)
+                    FROM
+                        KW_TENDANCIES
+                )
             """
         )
         result["keywords"] = cur.fetchone()
