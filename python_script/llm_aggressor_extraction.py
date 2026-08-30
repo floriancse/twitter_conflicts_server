@@ -64,6 +64,22 @@ WHERE
 	AND ENTITY_TYPE = 'country'
 """
 
+SQL_POST_PROMPT_CORRECTION_TALIBAN_AGGRESSION = """
+UPDATE MILITARY_ACTIONS
+SET
+	AGGRESSOR = 'Taliban'
+WHERE
+	AGGRESSOR = 'Taliban'
+"""
+
+SQL_POST_PROMPT_CORRECTION_TALIBAN_TARGET = """
+UPDATE MILITARY_ACTIONS
+SET
+	TARGET = 'Taliban'
+WHERE
+	TARGET = 'Taliban'
+"""
+
 client = OpenAI(
     base_url="http://localhost:8081/v1",
     api_key="",
@@ -95,7 +111,7 @@ OBJECTIVE_TYPES = [
     #"Education",
     #"Humanitarian",
     #"Leisure & Hospitality",
-    "Unidentified/Other",
+    "Unidentified Objective",
 ]
 
 ARMED_GROUPS = [
@@ -269,7 +285,7 @@ def sanitize_weapon_type(value: str | None) -> str | None:
         if normalized == allowed.lower():
             return allowed  # return canonical casing
     # Value was non-null but not in list → treat as Unidentified weapon
-    return "Unidentified weapon"
+    return "Unidentified Weapon"
 
 
 def sanitize_objective_type(value: str | None) -> str | None:
@@ -402,6 +418,9 @@ def generate_aggressor():
                     print(f"  Insert error for tweet {tweet_id}: {e}")
 
     finally:
+        cur.execute(SQL_POST_PROMPT_CORRECTION_TALIBAN_AGGRESSION)
+        cur.execute(SQL_POST_PROMPT_CORRECTION_TALIBAN_TARGET)
+        conn.commit()
         cur.close()
         conn.close()
 

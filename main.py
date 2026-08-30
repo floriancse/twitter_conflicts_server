@@ -765,11 +765,11 @@ def get_bootstrap():
         cur.execute(
             """
             SELECT
-                KW1,
-                KW2,
-                KW3,
-                KW4,
-                KW5
+                KW1, KW1_CTX,
+                KW2, KW2_CTX,
+                KW3, KW3_CTX,
+                KW4, KW4_CTX,
+                KW5, KW5_CTX
             FROM
                 KW_TENDANCIES
             WHERE
@@ -781,7 +781,16 @@ def get_bootstrap():
                 )
             """
         )
-        result["keywords"] = cur.fetchone()
+        kw_row = cur.fetchone()
+        if kw_row:
+            # kw_row = (KW1, KW1_CTX, KW2, KW2_CTX, ..., KW5, KW5_CTX)
+            result["keywords"] = [
+                {"term": kw_row[i], "context": kw_row[i + 1] or ""}
+                for i in range(0, len(kw_row), 2)
+                if kw_row[i]  # ignore les slots vides (term NULL/vide)
+            ]
+        else:
+            result["keywords"] = []
 
         cur.close()
 

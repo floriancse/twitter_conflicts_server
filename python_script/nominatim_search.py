@@ -39,20 +39,23 @@ def nominatim_geolocation_closest(q, ref_lat: float, ref_long: float, limit=50):
         'north macedonia',
         'east timor',
         'western australia',  
-        'North Waziristan, Pakistan',
-        'North Kordofan, Sudan',
-        'North Kivu, Democratic Republic of the Congo',
-        'South Sulawesi, Indonesia'
+        'north waziristan, pakistan',
+        'north kordofan, sudan',
+        'north kivu, democratic republic of the congo',
+        'south sulawesi, indonesia',
+        'south darfur, sudan',
+        'west darfur, sudan',
+        'west papua, indonesia'
     ]
 
     if not q:
         return None
 
-    q_lower = q.lower()
+    q = q.lower()
 
-    is_exception = any(exc in q_lower for exc in directional_exceptions)
+    is_exception = any(exc in q for exc in directional_exceptions)
 
-    if not is_exception and any(keyword.lower() in q_lower for keyword in directional_keywords):
+    if not is_exception and any(keyword.lower() in q for keyword in directional_keywords):
         return q
 
     url = "https://nominatim.openstreetmap.org/search"
@@ -102,6 +105,5 @@ def nominatim_geolocation_closest(q, ref_lat: float, ref_long: float, limit=50):
 
 
 if __name__ == "__main__":
-    result = nominatim_geolocation_closest("Ash Shishah, Oman", 62.0, 5.0)
-    lon, lat = result
-    print(lon, lat)
+    result = nominatim_geolocation_closest("West Darfur, Sudan",  15.28, 24.14)
+    print(result)

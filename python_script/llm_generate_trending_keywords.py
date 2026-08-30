@@ -47,21 +47,27 @@ WHERE
     AND (T.IS_DELAYED = 'false' OR T.IS_DELAYED IS NULL)
     AND NOT (T.CONFLICT_TYPOLOGY = 'MIL' AND T.NOMINATIM_QUERY NOT LIKE '%,%')
     AND IMPORTANCE_SCORE >= 2
-    AND FK_TOPIC IN (2, 5, 6, 1)
 """
 
+# NOTE: schema attendu désormais :
+# KW_TENDANCIES(CREATED_AT, KW1, KW1_CTX, KW2, KW2_CTX, KW3, KW3_CTX, KW4, KW4_CTX, KW5, KW5_CTX)
 SQL_INSERT_KEYWORDS = """
 INSERT INTO
-	KW_TENDANCIES (CREATED_AT, KW1, KW2, KW3, KW4, KW5)
+	KW_TENDANCIES (CREATED_AT, KW1, KW1_CTX, KW2, KW2_CTX, KW3, KW3_CTX, KW4, KW4_CTX, KW5, KW5_CTX)
 VALUES
-	(CURRENT_DATE, %s, %s, %s, %s, %s)
+	(CURRENT_DATE, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT (CREATED_AT) 
 DO UPDATE SET
     KW1 = EXCLUDED.KW1,
+    KW1_CTX = EXCLUDED.KW1_CTX,
     KW2 = EXCLUDED.KW2,
+    KW2_CTX = EXCLUDED.KW2_CTX,
     KW3 = EXCLUDED.KW3,
+    KW3_CTX = EXCLUDED.KW3_CTX,
     KW4 = EXCLUDED.KW4,
-    KW5 = EXCLUDED.KW5
+    KW4_CTX = EXCLUDED.KW4_CTX,
+    KW5 = EXCLUDED.KW5,
+    KW5_CTX = EXCLUDED.KW5_CTX
 """
 
 def build_system_prompt() -> str:
@@ -69,59 +75,49 @@ def build_system_prompt() -> str:
 Analyze the provided text to identify the top 5 emerging trends or patterns.
 
 CRITICAL RULES:
-1. Extract EXACTLY 5 keywords or keyphrases.
-2. Every keyword's root word(s) MUST come from the input text (see normalization rule below for how to trim it).
-3. DO NOT include weapons or armament terms (exclude "missile", "drone", "FAB-500", "UAV", "FPV", "artillery").
+1. Extract EXACTLY 5 entities/events. For each one, provide two fields:
+   - "term": the normalized keyword used for filtering/matching against the source text.
+   - "context": a short, SELF-CONTAINED headline-style phrase (2 to 4 words)
+     explaining WHAT is happening and WHERE/WHOM it involves. It MUST include
+     the entity name from "term" (or a natural reference to it) so the phrase
+     reads correctly on its own, without needing "term" prepended to it.
+     Examples: "Coup attempt Niamey", "Ozon warehouses hit",
+     "Wildberries logistics struck". This is for display only.
 
-4. NORMALIZATION RULE — CHOOSE ONE FORM, NEVER COMBINE:
+2. "term" MUST follow these constraints:
+   - Its root word(s) MUST come from the input text (see normalization rule below for how to trim it).
+   - DO NOT include weapons or armament terms (exclude "missile", "drone", "FAB-500", "UAV", "FPV", "artillery").
+
+3. "context" constraints:
+   - Must be a short, complete-reading phrase, 2 to 4 words, never a full sentence with a trailing period.
+   - MUST explicitly include the term's entity name (proper name or place) inside the phrase itself.
+   - Should state the specific event/reason driving the trend, in your own words.
+   - MAY reference weapons/armament terms if relevant (the weapons exclusion in rule 2 applies only to "term").
+   - Must NOT be just "term" followed by a generic word (e.g. "Ozon logistics" is too thin) — it needs to convey the actual event.
+
+4. NORMALIZATION RULE (applies to "term" only) — CHOOSE ONE FORM, NEVER COMBINE:
    For each entity, decide whether it has a distinctive PROPER NAME (a brand,
    company, or place name) or only a GENERIC TYPE (a facility category with
    no distinctive name).
 
    - IF the entity has a proper name (brand/company name) → output ONLY that
      proper name, alone. Strip any generic descriptor attached to it
-     (facility type, "plant", "center", "hypermarket", "refinery", "complex", etc.).
-       "Ozon logistics center"           -> "Ozon"
-       "Afipsky oil refinery"            -> "Afipsky"
-       "Epicentr hypermarket"            -> "Epicentr"
-       "Amur gas chemical complex"       -> "Amur"
-
-   - IF the entity has NO distinctive brand name and is only identified by a
-     PLACE NAME + generic facility type (e.g. "Astrakhan Gas Processing Plant",
-     "Kirov substation") → output ONLY the generic facility type, 1-2 words,
-     with no location attached.
-       "Astrakhan Gas Processing Plant"  -> "Gas processing plant"
-       "Kirov substation"                -> "Substation"
-       "the regional airbase"            -> "Airbase"
-       "an unnamed oil depot"            -> "Oil depot"
-
    - NEVER output "ProperName + generic type" together
      (e.g. "Ozon logistics center" is FORBIDDEN — output "Ozon" only).
    - NEVER output "PlaceName + generic type" together
-     (e.g. "Astrakhan gas processing plant" is FORBIDDEN — output
-     "Gas processing plant" only; the place name alone, without the brand
-     it belongs to, is not a useful keyword for filtering).
    - When in doubt whether a name is a brand or just a place, prefer the
      generic type — it groups more events and avoids false precision.
 
-5. Focus on targeted assets, non-military entities, locations, or impact mechanisms.
-
-EXAMPLES (input mention -> correct keyword):
-- "the Ozon logistics center was struck"        -> "Ozon"
-- "Afipsky oil refinery caught fire"            -> "Afipsky"
-- "Epicentr hypermarket damaged"                -> "Epicentr"
-- "Astrakhan Gas Processing Plant hit by drone" -> "Gas processing plant"
-- "a substation near Kirov was hit"             -> "Substation"
-- "Amur gas chemical complex reported damage"   -> "Amur"
+5. Focus "term" on targeted assets, non-military entities, locations, or impact mechanisms.
 
 Output JSON format strictly:
 {
   "keywords": [
-    "exact_term_1",
-    "exact_term_2",
-    "exact_term_3",
-    "exact_term_4",
-    "exact_term_5"
+    {"term": "exact_term_1", "context": "self-contained headline including exact_term_1"},
+    {"term": "exact_term_2", "context": "self-contained headline including exact_term_2"},
+    {"term": "exact_term_3", "context": "self-contained headline including exact_term_3"},
+    {"term": "exact_term_4", "context": "self-contained headline including exact_term_4"},
+    {"term": "exact_term_5", "context": "self-contained headline including exact_term_5"}
   ]
 }"""
 
@@ -155,6 +151,30 @@ def _call_llm(user_content: str) -> dict | None:
         return None
     return json.loads(raw)
 
+
+def _normalize_keywords(raw_keywords: list) -> list[dict]:
+    """
+    Normalise la sortie LLM en une liste de dicts {"term": str, "context": str}.
+    Tolère une éventuelle sortie legacy (liste de strings) pour ne pas casser
+    si le prompt/modèle régresse un jour vers l'ancien format.
+    """
+    normalized = []
+    for kw in raw_keywords[:5]:
+        if isinstance(kw, dict):
+            term = str(kw.get("term", "")).strip()
+            context = str(kw.get("context", "")).strip()
+        else:
+            # fallback legacy: simple string, pas de contexte disponible
+            term = str(kw).strip()
+            context = ""
+        normalized.append({
+            "term": term.capitalize() if term else "",
+            "context": context,
+        })
+    while len(normalized) < 5:
+        normalized.append({"term": "", "context": ""})
+    return normalized
+
 # ------------------------------------------------------------------
 # DB
 # ------------------------------------------------------------------
@@ -175,16 +195,19 @@ def build_keywords(days: int = 3) -> dict:
         result_str += "\n" + "-" * 50 + "\n"
 
     llm_output = _call_llm(result_str)
-    keywords = llm_output["keywords"]
-
-    for i in range(5):
-        keywords[i] = keywords[i].capitalize()
+    keywords = _normalize_keywords(llm_output["keywords"])
 
     print(keywords)
+
     if cur and conn:
-        cur.execute(SQL_INSERT_KEYWORDS, (keywords[0], keywords[1], keywords[2], keywords[3], keywords[4]))
+        params = []
+        for kw in keywords:
+            params.append(kw["term"])
+            params.append(kw["context"])
+        cur.execute(SQL_INSERT_KEYWORDS, params)
         conn.commit()
 
+    llm_output["keywords"] = keywords
     return llm_output
 
 
