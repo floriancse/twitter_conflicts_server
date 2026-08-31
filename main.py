@@ -686,8 +686,7 @@ def get_bootstrap():
             TWEETS
             LEFT JOIN TOPICS ON FK_TOPIC = TOPIC_ID
         WHERE
-            TOPIC_ID IS NOT NULL
-            AND IMPORTANCE_SCORE >= 4
+            IMPORTANCE_SCORE >= 4
             AND IS_DUPLICATE = 'false'
             AND (
                 IS_DELAYED IS NULL
@@ -804,7 +803,7 @@ def get_graph_events(
     label: Optional[str] = Query(None, description="Filter by topic label, e.g. ?label=Conflicts in Sahel"),
     search: Optional[str] = Query(None, description="Free-text filter on tweet content, e.g. ?search=Wildberries"),
 ):
-    conditions = ["T.GEOM IS NOT NULL", "T.IS_DUPLICATE = 'false'", "T.FK_TOPIC IS NOT NULL"]
+    conditions = ["T.GEOM IS NOT NULL", "T.IS_DUPLICATE = 'false'"]
     params = []
 
     if weapon_type:
@@ -850,7 +849,6 @@ def get_graph_events(
                 WHERE
                     T.CREATED_AT >= (SELECT PERIOD_START FROM ANCHOR) - INTERVAL '30 days'
                     AND {where_clause}
-                    AND TOPIC_ID IS NOT NULL
                     AND (
                         IS_DELAYED IS NULL
                         OR IS_DELAYED = 'false'

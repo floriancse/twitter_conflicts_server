@@ -64,20 +64,18 @@ WHERE
 	AND ENTITY_TYPE = 'country'
 """
 
-SQL_POST_PROMPT_CORRECTION_TALIBAN_AGGRESSION = """
+SQL_POST_PROMPT_CORRECTION = """
 UPDATE MILITARY_ACTIONS
 SET
-	AGGRESSOR = 'Taliban'
+	AGGRESSOR = 'Afghanistan'
 WHERE
-	AGGRESSOR = 'Taliban'
-"""
+	AGGRESSOR = 'Taliban';
 
-SQL_POST_PROMPT_CORRECTION_TALIBAN_TARGET = """
 UPDATE MILITARY_ACTIONS
 SET
-	TARGET = 'Taliban'
+	TARGET = 'Afghanistan'
 WHERE
-	TARGET = 'Taliban'
+	TARGET = 'Taliban';
 """
 
 client = OpenAI(
@@ -418,8 +416,7 @@ def generate_aggressor():
                     print(f"  Insert error for tweet {tweet_id}: {e}")
 
     finally:
-        cur.execute(SQL_POST_PROMPT_CORRECTION_TALIBAN_AGGRESSION)
-        cur.execute(SQL_POST_PROMPT_CORRECTION_TALIBAN_TARGET)
+        cur.execute(SQL_POST_PROMPT_CORRECTION)
         conn.commit()
         cur.close()
         conn.close()

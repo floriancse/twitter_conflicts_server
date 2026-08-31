@@ -108,7 +108,7 @@ CRITICAL RULES:
    - When in doubt whether a name is a brand or just a place, prefer the
      generic type — it groups more events and avoids false precision.
 
-5. Focus "term" on targeted assets, non-military entities, locations, or impact mechanisms.
+5. Focus "term" on targeted assets, non-military entities, locations, or impact mechanisms. Output the most important keywords first.
 
 Output JSON format strictly:
 {
@@ -178,7 +178,7 @@ def _normalize_keywords(raw_keywords: list) -> list[dict]:
 # ------------------------------------------------------------------
 # DB
 # ------------------------------------------------------------------
-def build_keywords(days: int = 3) -> dict:
+def build_keywords(days: int = 2) -> dict:
     """Retourne {date: [TEXT, ...]} pour les `days` derniers jours."""
     conn = get_db_connection()
     cur = conn.cursor()
