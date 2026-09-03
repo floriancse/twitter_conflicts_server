@@ -802,6 +802,10 @@ def get_graph_events(
     objective_type: Optional[List[str]] = Query(None, description="Filter by objective(s) targeted. Repeat the param for multiple values, e.g. ?objective_type=A&objective_type=B"),
     label: Optional[str] = Query(None, description="Filter by topic label, e.g. ?label=Conflicts in Sahel"),
     search: Optional[str] = Query(None, description="Free-text filter on tweet content, e.g. ?search=Wildberries"),
+    min_lng: Optional[float] = Query(None, description="Spatial filter: bounding box min longitude (rectangle drawn on the map)"),
+    min_lat: Optional[float] = Query(None, description="Spatial filter: bounding box min latitude"),
+    max_lng: Optional[float] = Query(None, description="Spatial filter: bounding box max longitude"),
+    max_lat: Optional[float] = Query(None, description="Spatial filter: bounding box max latitude"),
 ):
     conditions = ["T.GEOM IS NOT NULL", "T.IS_DUPLICATE = 'false'"]
     params = []
@@ -823,6 +827,13 @@ def get_graph_events(
     if search:
         conditions.append("T.TEXT ILIKE %s")
         params.append(f"%{search}%")
+
+    # Filtre spatial : intersection avec le rectangle tracé sur la carte
+    # (mêmes 4 coins que ceux utilisés côté client par isPointInsideRectangle).
+    # N'est appliqué que si les 4 bornes sont fournies.
+    if None not in (min_lng, min_lat, max_lng, max_lat):
+        conditions.append("ST_Intersects(T.GEOM, ST_MakeEnvelope(%s, %s, %s, %s, 4326))")
+        params.extend([min_lng, min_lat, max_lng, max_lat])
 
     where_clause = " AND ".join(conditions)
 

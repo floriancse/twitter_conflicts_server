@@ -142,25 +142,39 @@ def build_system_prompt(countries: list[str]) -> str:
     movements, negotiations, announcements, flight restrictions, overflight/in-transit sightings
     with no reported hit, raw drone/missile counts with no impact) → all fields null.
 
-    RULE 2 — ACTOR (who fires/operates the weapon, never the defender or the supplier country):
-    state military → exact country name from the list; named armed group → exact name from the
-    group list, never null when explicitly named; unknown/unnamed attacker, passive voice
+    RULE 2 — ACTOR: the country (or named armed group) that performs the destructive physical
+    action — fires/operates the weapon that causes the impact. This includes shooting down or
+    intercepting an airborne asset (drone/UCAV, missile, aircraft) in flight: there is NO special
+    "defender" exception — whoever destroys the asset is the actor, whether that asset was an
+    offensive munition en route to a target or a surveillance/patrol asset. Do not distinguish the
+    two cases.
+    General case: state military → exact country name from the list; named armed group → exact name
+    from the group list, never null when explicitly named; unknown/unnamed attacker, passive voice
     ("was struck"), unnamed proxy/militia → null.
     Aliases: "USF" (Unmanned Systems Forces, Ukraine) → Ukraine; "IRGC" → Iran; Wagner/Africa Corps → Russia. Talibans (TTP, Balochistan Liberation Front) → Afghanistan.
+
+    Airborne shootdown case ("shot down", "downed", "intercepted", "destroyed in flight", "knocked
+    out of the sky", "took down", "brought down" — any wording): actor = the country that DESTROYED
+    the asset; target (this overrides RULE 3's soil rule for this case only) = the country that
+    OWNS/OPERATES the destroyed asset, not whose soil the wreckage fell on. weapon_type = whatever
+    the destroying country used: named missile → "Missiles"; SAM/gun-based air-defence system or
+    unspecified → "Air Defence"; handheld MANPADS → "Explosives" (per RULE 5). objective = the
+    destroyed asset itself (e.g. "Shahed drone", "MQ-9A drone"); objective_type = "Military".
+    e.g. "Ukrainian soldier fired a MANPADS from the street in Dnipro, intercepting a Russian UAV"
+    → actor "Ukraine", weapon_type "Explosives", target "Russia", objective "UAV".
+    e.g. "Iran's IRGC shot down a U.S. Air Force MQ-9A UCAV over Khomeyn, Markazi Province" → actor
+    "Iran", weapon_type "Air Defence", target "United States", objective "MQ-9A drone".
+    Friendly fire (weapon malfunctions, hits own side) → actor = target = that country.
 
     RULE 3 — TARGET (whose territory absorbs the impact): soil rule — target = country whose SOIL
     is hit regardless of asset ownership (US base hit in Iraq → target "Iraq"). Occupied territory
     (Crimea, Donetsk, Luhansk, Zaporizhzhia, Kherson; Oryol, Belgorod, Kursk, Bryansk) → "Russia";
     government-controlled Ukraine → "Ukraine". Vessel: military → flag state/operator; commercial →
     flag state if in list else null; unclear "shadow fleet" → null. Multi-target → country with the
-    most significant damage, single string never a list.
+    most significant damage, single string never a list. Exception: for an airborne shootdown (see
+    RULE 2), target is the destroyed asset's owner, not the soil under it.
 
-    RULE 4 — INTERCEPTION: when a weapon is shot down/intercepted/destroyed in flight, actor = who
-    LAUNCHED it, target = where it FELL — the intercepting/defending force is never the actor
-    (e.g. "Ukraine shot down a Russian Shahed over Odesa" → actor "Russia", target "Ukraine").
-    Friendly fire (weapon malfunctions, hits own side) → actor = target = that country.
-
-    RULE 4bis — ACTOR ≠ TARGET, UNLESS GENUINE FRIENDLY FIRE: actor and target must NOT be the
+    RULE 2bis — ACTOR ≠ TARGET, UNLESS GENUINE FRIENDLY FIRE: actor and target must NOT be the
     same entity except in a confirmed friendly-fire/accident case (own weapon malfunctions, own
     munitions/vehicle detonates, own forces mistakenly hit — as in example 6). A state military
     conducting a deliberate strike against a NON-STATE ARMED GROUP on its own soil is NOT friendly
@@ -203,9 +217,9 @@ def build_system_prompt(countries: list[str]) -> str:
 
     VALID VALUES — actor: country from list OR armed group from list, or null. target: country
     from list OR armed group from list (only for a domestic counter-insurgency strike per RULE
-    4bis), or null. weapon_type / objective_type: exactly one value from their list, or null.
+    2bis), or null. weapon_type / objective_type: exactly one value from their list, or null.
     Countries: {country_list}
-    Armed groups (actor or target per RULE 4bis): {group_list}
+    Armed groups (actor or target per RULE 2bis): {group_list}
 
     EXAMPLES (each shown as a single labeled event; apply the same logic per EVENT_ID in your batch)
 
@@ -217,9 +231,9 @@ def build_system_prompt(countries: list[str]) -> str:
     EVENT_ID: ex2 — "Ukrainian FP-2 drones destroyed both transformers at the 220 kV substation in Alchevsk, Luhansk region."
     → {{"event_id": "ex2", "actor": "Ukraine", "weapon_type": "Drones", "target": "Russia", "objective": "power substation transformers", "objective_type": "Energy"}}
 
-    3. Interception — defending force is NOT the actor:
+    3. Airborne asset shot down (RULE 2) — actor is always the country that DESTROYED the asset:
     EVENT_ID: ex3 — "Ukrainian soldier fired a MANPADS from the street in Dnipro, intercepting a Russian UAV."
-    → {{"event_id": "ex3", "actor": "Russia", "weapon_type": "Drones", "target": "Ukraine", "objective": "UAV", "objective_type": "Military"}}
+    → {{"event_id": "ex3", "actor": "Ukraine", "weapon_type": "Explosives", "target": "Russia", "objective": "UAV", "objective_type": "Military"}}
 
     4. Actor null (unlisted group), vague target → "Unidentified/Other":
     EVENT_ID: ex4 — "An unknown group used 107mm Type 63 rockets to strike the city of Quetta in Balochistan, Pakistan."
@@ -237,7 +251,12 @@ def build_system_prompt(countries: list[str]) -> str:
     EVENT_ID: ex6bis — "Nigeria's Operation Hadin Kai air platforms killed about 38 suspected militants in precision strikes on militant concentrations in Borno State, targeting Boko Haram groups tracked near Aduwa and Buratai."
     → {{"event_id": "ex6bis", "actor": "Nigeria", "weapon_type": "Military Aviation", "target": "Boko Haram", "objective": "militant concentrations", "objective_type": "Military"}}
 
-    7. Overflight / no confirmed impact → all null:
+    7bis. Same rule (RULE 2) applied to an ISR asset — actor is still the destroying country:
+    EVENT_ID: ex7bis — "Iran's IRGC shot down a U.S. Air Force (USAF) MQ-9A unmanned combat aerial
+    vehicle (UCAV) over Khomeyn, Markazi Province."
+    → {{"event_id": "ex7bis", "actor": "Iran", "weapon_type": "Air Defence", "target": "United States", "objective": "MQ-9A drone", "objective_type": "Military"}}
+
+    8. Overflight / no confirmed impact → all null:
     EVENT_ID: ex7 — "A Ukrainian Flamingo cruise missile was spotted flying over Russia's Chuvash Republic, over 500 miles from the border."
     → {{"event_id": "ex7", "actor": null, "weapon_type": null, "target": null, "objective": null, "objective_type": null}}
     """
@@ -306,7 +325,7 @@ def sanitize_objective_type(value: str | None) -> str | None:
 # groupes/armes) coûte le même prix qu'il traite 1 ou N événements : plus ce chiffre
 # est haut, moins on paie de fois ce prompt. 10 reste prudent ici car la tâche a 5
 # champs et des règles fines par événement (contrairement à une simple catégorisation).
-BATCH_SIZE = 5
+BATCH_SIZE = 3
 
 
 def chunked(items: list, size: int):
@@ -330,7 +349,6 @@ def extract_quadruplets_batch(batch: list[tuple[str, str]], countries: list[str]
             ],
             response_format={"type": "json_object"},
             temperature=0.0,
-            max_tokens=700 * len(batch) + 200,
         )
         track(response)
         raw = response.choices[0].message.content.strip()

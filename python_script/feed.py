@@ -117,6 +117,12 @@ SQL_INSERT_DAILY_CONFLICTS = """
     SET
         UPDATED_AT = NOW();
     """
+
+SQL_DELETE_ERRORS = """
+DELETE FROM TWEETS
+WHERE
+	TEXT ILIKE '%Error 500 (Server Error)!!1500.That’s an error.There was an error. Please try again later.That’s all we know%'
+"""
 # ==============================================================================
 # CONNECTION
 # ==============================================================================
@@ -294,7 +300,6 @@ for batch in chunked(candidates, GEOCODE_BATCH_SIZE):
             conn.commit()
 
 
-
 # Post-processing: dedupe, snapshot threats, extract aggressors, summarize, keywords
 flag_duplicates()
 save_threat_snapshot()
@@ -305,6 +310,9 @@ summarize_from_db()
 build_keywords()
 
 cur.execute(SQL_INSERT_DAILY_CONFLICTS)
+conn.commit()
+
+cur.execute(SQL_DELETE_ERRORS)
 conn.commit()
 
 cur.close()

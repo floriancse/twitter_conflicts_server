@@ -16,7 +16,7 @@ client = OpenAI(base_url="http://localhost:8081/v1", api_key="")
 # chiffre est haut, moins on paie de fois ce prompt. On reste prudent (8) car
 # chaque tweet peut produire plusieurs événements avec un JSON de sortie
 # verbeux, et le serveur local tourne avec --ctx-size 8192 seulement.
-BATCH_SIZE = 8
+BATCH_SIZE = 5
 
 RULES_BODY = """Extract concrete geopolitical events from tweets.
  
@@ -36,6 +36,23 @@ nominatim_query MUST be "City, Country" or "Region, Country" ONLY — never a fa
    Correct: "North Arabian Sea" → nominatim_query = "Arabian Sea". The direction can still inform lat/lon placement (shift the point toward the northern part of the sea) but must never appear in the nominatim_query string itself.
 Example: "Ukraine destroyed a depot at the Tochmash plant near Donetsk airport" → nominatim_query = "Donetsk, Ukraine" (facility name dropped, confidence = "high").
 If truly no location can be inferred (e.g. pure opinion, no actor/target location) → nominatim_query = null, lat/lon = null, confidence = "low". Note : attribute Crimea and its cities to Ukraine (e.g. Sevastopol, Ukraine).
+
+ORIGIN vs TARGET
+Some events describe an action FIRED/LAUNCHED/TAKING OFF FROM one place TOWARD/AT/AGAINST another
+(e.g. "missiles launched from [base] in [origin] toward/at a target in [destination]", "jets took off
+from [origin] to strike [destination]"). Whenever a preposition such as "toward", "at", "against",
+"targeting", "aimed at", "heading to", "to strike" connects an origin to a target:
+- nominatim_query MUST resolve to the TARGET/destination, never the origin/launch site — even if the
+  origin is far more precise (a named base/city) than the target. The origin can still be named in
+  summary_text (it's part of "actor/weapon"), it just never drives geolocation.
+- If the target is only a bare country with no city/region given (e.g. "toward a base somewhere in
+  Jordan"), resolve it per rule 3 (country capital, or the relevant part of the country if a
+  directional modifier is present) — confidence "medium" at most, since the precise impact point is
+  unknown.
+- Exception: if no target is stated at all (pure launch/detection report, nothing fired "at/toward"
+  anything), fall back to the origin location as the only available information.
+Example: "IRGC launched ballistic missiles from its base in Yazd, Iran, toward a U.S. base in Jordan"
+→ nominatim_query = "Amman, Jordan" (target country resolved to its capital), NOT "Yazd, Iran".
  
 DIRECTIONAL MODIFIERS
 This section applies ONLY to countries/regions (rule 3), NEVER to seas/straits (rule 4) — for seas/straits, always strip the direction per rule 4 above, no exceptions.
@@ -191,7 +208,6 @@ def extract_events_and_geoloc_batch(batch: list[tuple[str, str]]) -> dict[str, d
             ],
             response_format={"type": "json_object"},
             temperature=0.0,
-            max_tokens=350 * len(batch) + 300,
         )
         track(response)
         raw_content = response.choices[0].message.content.strip()
@@ -218,6 +234,13 @@ def extract_events_and_geoloc_batch(batch: list[tuple[str, str]]) -> dict[str, d
 
 if __name__ == "__main__":
     print(extract_events_and_geoloc("""
-US Southern Command announces that US Armed Forces conducted an airstrike against vessel operating under a Cartel in the Eastern Pacific The strike killed 2 narco-terrorists.
+BREAKING: The IRGC Aerospace Force has just launched three Khorramshahr-3 or 4 ballistic missiles from its Al-Qadir ballistic missile base in Yazd, central Iran, toward a U.S. military base somewhere in Jordan.
+
+These ballistic missiles are equipped with cluster munitions and can present a particularly difficult interception challenge for the U.S. Army’s Patriot PAC-3 air-defense systems.
+
+Their cluster-munition payloads can disperse submunitions across a wide area, potentially damaging multiple aircraft parked in the open on the aprons and ramps of an air base.
+
+However, I doubt that many valuable aircraft remain at the targeted base, as the U.S. military has most likely evacuated or dispersed them in anticipation of further Iranian ballistic-missile attacks.
+
 """))
     print(token_tracker.summary())

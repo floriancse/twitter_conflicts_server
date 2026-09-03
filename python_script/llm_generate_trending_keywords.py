@@ -46,7 +46,7 @@ WHERE
     AND T.GEOM IS NOT NULL
     AND (T.IS_DELAYED = 'false' OR T.IS_DELAYED IS NULL)
     AND NOT (T.CONFLICT_TYPOLOGY = 'MIL' AND T.NOMINATIM_QUERY NOT LIKE '%,%')
-    AND IMPORTANCE_SCORE >= 2
+    AND IMPORTANCE_SCORE >= 3
 """
 
 # NOTE: schema attendu désormais :
@@ -75,6 +75,7 @@ def build_system_prompt() -> str:
 Analyze the provided text to identify the top 5 emerging trends or patterns.
 
 CRITICAL RULES:
+
 1. Extract EXACTLY 5 entities/events. For each one, provide two fields:
    - "term": the normalized keyword used for filtering/matching against the source text.
    - "context": a short, SELF-CONTAINED headline-style phrase (2 to 4 words)
@@ -99,16 +100,75 @@ CRITICAL RULES:
    For each entity, decide whether it has a distinctive PROPER NAME (a brand,
    company, or place name) or only a GENERIC TYPE (a facility category with
    no distinctive name).
-
    - IF the entity has a proper name (brand/company name) → output ONLY that
-     proper name, alone. Strip any generic descriptor attached to it
+     proper name, alone. Strip any generic descriptor attached to it.
    - NEVER output "ProperName + generic type" together
      (e.g. "Ozon logistics center" is FORBIDDEN — output "Ozon" only).
-   - NEVER output "PlaceName + generic type" together
+   - NEVER output "PlaceName + generic type" together.
    - When in doubt whether a name is a brand or just a place, prefer the
      generic type — it groups more events and avoids false precision.
 
-5. Focus "term" on targeted assets, non-military entities, locations, or impact mechanisms. Output the most important keywords first.
+5. CATEGORY DIVERSITY (mandatory):
+   Classify each candidate entity into exactly ONE category:
+   - MILITARY (strikes, front-line movements, attacks, military bases or
+     units targeted — the event/action itself, not the weapon used)
+   - LOGISTICS (warehouses, retailers, distribution centers)
+   - ENERGY (refineries, pipelines, power grid)
+   - GOVERNANCE/POLITICAL (coups, elections, leadership changes, unrest)
+   - INFRASTRUCTURE (bases, airfields, ports, transport — non-weapon)
+   - ECONOMIC/FINANCIAL (sanctions, currency, trade routes)
+   - CYBER (breaches, outages, digital infrastructure)
+   - SOCIAL/CIVIL (protests, humanitarian crises, displacement)
+
+   The final 5 entities MUST span AT LEAST 3 different categories.
+   MAXIMUM 2 entities from the same category.
+   If the source text is dominated by one category, still select the
+   single strongest signal from that category, then actively search the
+   rest of the text for the strongest entity in an under-represented
+   category — do not default to the next-best entity in the same
+   category just because it scored higher in isolation.
+
+   MILITARY / POLITICAL BALANCE (mandatory):
+   If the source text contains signal for BOTH military events (strikes,
+   combat, front-line activity) AND political/governance events (coups,
+   elections, leadership changes, unrest), the final 5 MUST include AT
+   LEAST ONE entity from MILITARY and AT LEAST ONE entity from
+   GOVERNANCE/POLITICAL. Do not let one type dominate all 5 slots just
+   because it has more raw mentions in the source text — actively search
+   for the strongest signal in the under-represented type before finalizing.
+
+6. GEOGRAPHIC DIVERSITY:
+   If the input text covers multiple countries/conflicts/regions, the top 5
+   must reflect at least 2 distinct geographic contexts, unless the text
+   genuinely contains signal for only one. MAXIMUM 3 entities from the same
+   country/conflict. Do not let sheer volume of mentions dictate selection —
+   an entity with fewer but more novel mentions in an under-represented
+   region may be more "emerging" than a saturated one elsewhere.
+
+7. SELECTION PROCESS (internal, do not output):
+   Before producing the final JSON, internally draft up to 10 candidate
+   entities spanning as many different categories and regions as the text
+   supports, with a one-line justification for each. Then apply rules 5 and
+   6 to select the final 5. Do NOT show this draft list — output ONLY the
+   final JSON.
+
+8. Focus "term" on targeted assets, non-military entities, locations, or
+   impact mechanisms. Output the most important keywords first, but
+   "most important" must be evaluated AFTER applying the diversity
+   constraints above, not before.
+
+9. CRITICAL SELF-CHECK BEFORE OUTPUT:
+   For each keyword object, the "context" string MUST contain the exact
+   "term" string (case-insensitive substring match), OR a direct
+   morphological variant of it (e.g. plural, adjective form). If it does
+   not, rewrite the context until it does. This is a hard requirement — an
+   object where "context" does not contain "term" is INVALID output.
+
+   Example of INVALID output (term missing from context):
+   {"term": "Ozon", "context": "Warehouse struck near Moscow"}   ✗ "Ozon" absent
+
+   Example of VALID output:
+   {"term": "Ozon", "context": "Ozon warehouse struck near Moscow"}   ✓
 
 Output JSON format strictly:
 {
